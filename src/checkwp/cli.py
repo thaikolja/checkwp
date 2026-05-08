@@ -25,12 +25,12 @@ console = Console(stderr=True)
 
 # Define the stylized ASCII banner for the CLI
 BANNER = r"""[bold gradient(#6366f1,#a855f7)]
-     ██████╗██╗  ██╗███████╗ ██████╗██╗  ██╗████████╗██╗    ██╗██████╗
-    ██╔════╝██║  ██║██╔════╝██╔════╝██║ ██╔╝╚══██╔══╝██║    ██║██╔══██╗
-    ██║     ███████║█████╗  ██║     █████╔╝    ██║   ██║ █╗ ██║██████╔╝
-    ██║     ██╔══██║██╔══╝  ██║     ██╔═██╗    ██║   ██║███╗██║██╔═══╝
-    ╚██████╗██║  ██║███████╗╚██████╗██║  ██╗   ██║   ╚███╔███╔╝██║
-     ╚═════╝╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝  ╚═╝   ╚═╝    ╚══╝╚══╝ ╚═╝[/]
+     ██████╗██╗  ██╗███████╗ ██████╗██╗  ██╗██╗    ██╗██████╗
+    ██╔════╝██║  ██║██╔════╝██╔════╝██║ ██╔╝██║    ██║██╔══██╗
+    ██║     ███████║█████╗  ██║     █████╔╝ ██║ █╗ ██║██████╔╝
+    ██║     ██╔══██║██╔══╝  ██║     ██╔═██╗ ██║███╗██║██╔═══╝
+    ╚██████╗██║  ██║███████╗╚██████╗██║  ██╗╚███╔███╔╝██║
+     ╚═════╝╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝  ╚═╝ ╚══╝╚══╝ ██║[/]
 """
 
 
@@ -640,9 +640,10 @@ def main(argv: list[str] | None = None) -> int:
 
         except Exception as exc:
             # Handle AI-specific errors gracefully
-            console.print(f"\n[bold red]✖ AI Analysis Connection Failed:[/] {exc}")
-            # Inform user that scan proceeds without AI
-            console.print("[yellow]The scan will proceed, but AI deep verification has been disabled.[/]")
+            if not args.quiet:
+                console.print(f"\n[bold red]✖ AI Analysis Connection Failed:[/] {exc}")
+                # Inform user that scan proceeds without AI
+                console.print("[yellow]The scan will proceed, but AI deep verification has been disabled.[/]")
             # Log error in result object
             result.errors.append(f"AI analysis failed: {exc}")
 
@@ -699,21 +700,22 @@ def main(argv: list[str] | None = None) -> int:
         try:
             # Handle macOS specific open command
             if sys.platform == 'darwin':
-                # Import subprocess for system calls
-                import subprocess
-                # Run the open command
-                subprocess.call(('open', output_path))
+                # Run the open command using absolute path for security
+                import subprocess  # nosec
+                subprocess.call(['/usr/bin/open', output_path])  # nosec
             # Handle Windows specific file association launch
             elif sys.platform in ['win32', 'cygwin']:
                 # Run startfile
-                os.startfile(output_path)
+                os.startfile(output_path)  # nosec
             # Handle Linux and other platforms
             else:
                 # Use standard webbrowser module
                 webbrowser.open(f"file://{output_path}")
-        except Exception:
-            # Ignore browser launch errors
-            pass
+        except Exception as exc:
+            # Log browser launch errors to the result object for debug visibility
+            result.errors.append(f"Could not automatically open report: {exc}")
+            if not args.quiet:
+                console.print(f"[yellow]Warning:[/] Could not automatically open report: {exc}")
 
     # Return success exit code
     return 0
