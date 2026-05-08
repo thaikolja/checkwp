@@ -3,14 +3,14 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "checkwp"
+name = "wpcheck"
 version = "1.0.0"
-description = "WordPress Plugin Security Checker — detect malware, backdoors, adware, and security vulnerabilities in WordPress plugins."
+description = "WPCheck — detect malware, backdoors, adware, and security vulnerabilities in WordPress plugins."
 readme = "README.md"
-license = {text = "MIT"}
+license = { text = "MIT" }
 requires-python = ">=3.10"
 authors = [
-    {name = "Kolja Nolte", email = "kolja.nolte@gmail.com"},
+    { name = "Kolja Nolte", email = "kolja.nolte@gmail.com" },
 ]
 keywords = ["wordpress", "security", "vulnerability", "scanner", "malware", "php"]
 classifiers = [
@@ -39,11 +39,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://gitlab.com/koljanolte/checkwp"
-Repository = "https://gitlab.com/koljanolte/checkwp"
-Mirror = "https://github.com/koljanolte/checkwp"
-Issues = "https://gitlab.com/koljanolte/checkwp/-/issues"
-Documentation = "https://gitlab.com/koljanolte/checkwp#readme"
+Homepage = "https://gitlab.com/koljanolte/wpcheck"
+Repository = "https://gitlab.com/koljanolte/wpcheck"
+Mirror = "https://github.com/koljanolte/wpcheck"
+Issues = "https://gitlab.com/koljanolte/wpcheck/-/issues"
+Documentation = "https://gitlab.com/koljanolte/wpcheck#readme"
 
 [project.optional-dependencies]
 dev = [
@@ -55,7 +55,7 @@ dev = [
 ]
 
 [project.scripts]
-checkwp = "checkwp.cli:main"
+wpcheck = "wpcheck.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,5 +1,5 @@
 """
-CLI entry point for checkwp — WordPress Plugin Security Checker.
+CLI entry point for wpcheck — WPCheck.
 This script handles user input, configures the scanner, and triggers report generation.
 """
 
@@ -15,22 +15,22 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from checkwp import __version__
-from checkwp.report.generator import generate_html_report, generate_json_report
-from checkwp.scanner.engine import Scanner, ScanResult
-from checkwp.scanner.patterns import Severity
+from wpcheck import __version__
+from wpcheck.report.generator import generate_html_report, generate_json_report
+from wpcheck.scanner.engine import Scanner, ScanResult
+from wpcheck.scanner.patterns import Severity
 
 # Initialize a global console object for stderr output
 console = Console(stderr=True)
 
 # Define the stylized ASCII banner for the CLI
 BANNER = r"""[bold gradient(#6366f1,#a855f7)]
-     ██████╗██╗  ██╗███████╗ ██████╗██╗  ██╗██╗    ██╗██████╗
-    ██╔════╝██║  ██║██╔════╝██╔════╝██║ ██╔╝██║    ██║██╔══██╗
-    ██║     ███████║█████╗  ██║     █████╔╝ ██║ █╗ ██║██████╔╝
-    ██║     ██╔══██║██╔══╝  ██║     ██╔═██╗ ██║███╗██║██╔═══╝
-    ╚██████╗██║  ██║███████╗╚██████╗██║  ██╗╚███╔███╔╝██║
-     ╚═════╝╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝  ╚═╝ ╚══╝╚══╝ ██║[/]
+     ██╗    ██╗██████╗  ██████╗██╗  ██╗███████╗ ██████╗██╗  ██╗
+     ██║    ██║██╔══██╗██╔════╝██║  ██║██╔════╝██╔════╝██║ ██╔╝
+     ██║ █╗ ██║██████╔╝██║     ███████║█████╗  ██║     █████╔╝ 
+     ██║███╗██║██╔═══╝ ██║     ██╔══██║██╔══╝  ██║     ██╔═██╗ 
+     ╚███╔███╔╝██║     ╚██████╗██║  ██║███████╗╚██████╗██║  ██╗
+      ╚══╝╚══╝ ╚═╝      ╚═════╝╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝  ╚═╝[/]
 """
 
 
@@ -39,10 +39,10 @@ def _build_parser() -> argparse.ArgumentParser:
     # Initialize the main parser object
     parser = argparse.ArgumentParser(
         # Set program name
-        prog="checkwp",
+        prog="wpcheck",
         # Set project description
         description=(
-            "WordPress Plugin Security Checker — detect malware, backdoors, "
+            "WPCheck — detect malware, backdoors, "
             "and vulnerabilities in WordPress plugins."
         ),
         # Use raw formatter to preserve formatting in epilog
@@ -50,13 +50,13 @@ def _build_parser() -> argparse.ArgumentParser:
         # Add usage examples and author info to the bottom of the help
         epilog="""
 Examples:
-  checkwp ./my-plugin
-  checkwp ./my-plugin -o report.html --deep
-  checkwp ./my-plugin --severity high --threads 8
-  checkwp ./my-plugin --ai --ai-key sk-... --ai-model gpt-4o
-  checkwp ./my-plugin --format json -o results.json
-  checkwp ./my-plugin --exclude "tests/*" --exclude "assets/*"
-  checkwp ./my-plugin --quick --no-open
+  wpcheck ./my-plugin
+  wpcheck ./my-plugin -o report.html --deep
+  wpcheck ./my-plugin --severity high --threads 8
+  wpcheck ./my-plugin --ai --ai-key sk-... --ai-model gpt-4o
+  wpcheck ./my-plugin --format json -o results.json
+  wpcheck ./my-plugin --exclude "tests/*" --exclude "assets/*"
+  wpcheck ./my-plugin --quick --no-open
 
 Author:
   Kolja Nolte <kolja.nolte@gmail.com>
@@ -243,7 +243,7 @@ Author:
         # Default to None
         default=None,
         # Help description
-        help="API key for the AI provider. Can also use CHECKWP_AI_KEY env var.",
+        help="API key for the AI provider. Can also use WPCHECK_AI_KEY env var.",
     )
     # Add option for AI API base URL
     ai_group.add_argument(
@@ -325,7 +325,7 @@ Author:
         # Built-in version action
         action="version",
         # Format string for version output
-        version=f"checkwp v{__version__}",
+        version=f"wpcheck v{__version__}",
     )
 
     # Return the completed parser object
@@ -336,7 +336,7 @@ def _severity_from_str(s: str) -> Severity:
     """Map a case-insensitive string label to a Severity enum value."""
     # Return mapped enum based on lowercase input string
     return {"critical": Severity.CRITICAL, "high": Severity.HIGH, "medium": Severity.MEDIUM,
-            "low": Severity.LOW}[s.lower()]
+            "low":      Severity.LOW}[s.lower()]
 
 
 def _print_nonfatal_errors(result: ScanResult) -> None:
@@ -366,24 +366,26 @@ def _print_summary(result: ScanResult) -> None:
     # Print a newline for spacing
     console.print()
     # Render the main summary panel
-    console.print(Panel(
-        # Display the grade with dynamic coloring
-        f"[bold]Grade: [{color}]{grade}[/{color}][/bold]  •  "
-        # Display critical finding count
-        f"[red]{result.critical_count} Critical[/]  •  "
-        # Display high finding count
-        f"[dark_orange]{result.high_count} High[/]  •  "
-        # Display medium finding count
-        f"[yellow]{result.medium_count} Medium[/]  •  "
-        # Display low finding count
-        f"[blue]{result.low_count} Low[/]",
-        # Use plugin name as panel title
-        title=f"[bold white]{result.plugin_name}[/]",
-        # Show file count and duration as subtitle
-        subtitle=f"{len(result.files_scanned)} files • {result.scan_duration}s",
-        # Set border color
-        border_style="bright_blue",
-    ))
+    console.print(
+        Panel(
+            # Display the grade with dynamic coloring
+            f"[bold]Grade: [{color}]{grade}[/{color}][/bold]  •  "
+            # Display critical finding count
+            f"[red]{result.critical_count} Critical[/]  •  "
+            # Display high finding count
+            f"[dark_orange]{result.high_count} High[/]  •  "
+            # Display medium finding count
+            f"[yellow]{result.medium_count} Medium[/]  •  "
+            # Display low finding count
+            f"[blue]{result.low_count} Low[/]",
+            # Use plugin name as panel title
+            title=f"[bold white]{result.plugin_name}[/]",
+            # Show file count and duration as subtitle
+            subtitle=f"{len(result.files_scanned)} files • {result.scan_duration}s",
+            # Set border color
+            border_style="bright_blue",
+        )
+    )
 
     # If findings exist, print the detailed findings table
     if result.total_findings > 0:
@@ -516,12 +518,12 @@ def main(argv: list[str] | None = None) -> int:
     # Handle user-defined additional extensions
     elif args.include_ext:
         # Import defaults
-        from checkwp.scanner.engine import DEFAULT_EXTENSIONS
+        from wpcheck.scanner.engine import DEFAULT_EXTENSIONS
         # Merge defaults with user provided extensions
         include_ext = DEFAULT_EXTENSIONS | set(args.include_ext)
 
     # Logic to build the set of directories to exclude
-    from checkwp.scanner.engine import DEFAULT_EXCLUDE
+    from wpcheck.scanner.engine import DEFAULT_EXCLUDE
     # Merge default excludes with user provided exclusions
     exclude_dirs = DEFAULT_EXCLUDE | set(args.exclude)
 
@@ -600,11 +602,11 @@ def main(argv: list[str] | None = None) -> int:
     # Logic for optional AI analysis if requested by the user
     if args.ai:
         # Fetch API key from arguments or environment variable
-        api_key = args.ai_key or os.environ.get("CHECKWP_AI_KEY")
+        api_key = args.ai_key or os.environ.get("WPCHECK_AI_KEY")
         # Ensure a key is available
         if not api_key:
             # Print error and exit
-            console.print("[red bold]Error:[/] AI mode requires --ai-key or CHECKWP_AI_KEY environment variable.")
+            console.print("[red bold]Error:[/] AI mode requires --ai-key or WPCHECK_AI_KEY environment variable.")
             # Return failure
             return 1
 
@@ -615,7 +617,7 @@ def main(argv: list[str] | None = None) -> int:
 
         try:
             # Late import of the AI analyzer to save startup time if not used
-            from checkwp.ai.analyzer import AIAnalyzer
+            from wpcheck.ai.analyzer import AIAnalyzer
             # Initialize AI analyzer
             analyzer = AIAnalyzer(
                 # Set API key
@@ -636,7 +638,7 @@ def main(argv: list[str] | None = None) -> int:
             # Store metadata in result
             result.ai_model = args.ai_model
             # Estimate token usage
-            result.ai_tokens = len(result.findings) * 850 + 1200 # Appx tokens
+            result.ai_tokens = len(result.findings) * 850 + 1200  # Appx tokens
 
         except Exception as exc:
             # Handle AI-specific errors gracefully

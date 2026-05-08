@@ -1,5 +1,5 @@
 """
-FastAPI entry point for the checkwp Web Interface API.
+FastAPI entry point for the wpcheck Web Interface API.
 This module provides the backend infrastructure for the Nuxt-based front end.
 """
 
@@ -9,31 +9,32 @@ import json
 import os
 import shutil
 import tempfile
-from pathlib import Path
 
+from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
-
-from checkwp.ai.analyzer import AIAnalyzer
-from checkwp.report.generator import generate_html_report, generate_json_report
-from checkwp.scanner.engine import Scanner
+from wpcheck.ai.analyzer import AIAnalyzer
+from wpcheck.report.generator import generate_html_report, generate_json_report
+from wpcheck.scanner.engine import Scanner
 
 # Initialize the main FastAPI application instance
 app = FastAPI(
     # Set the visible title of the API
-    title="WordPress Plugin Security Checker API",
+    title="WPCheck API",
     # Set the API description
     description="API for scanning WordPress plugin ZIP files.",
     # Set version
     version="1.0.0",
 )
 
+
 # Define a health check endpoint for monitoring
 @app.get("/health")
 def health_check():
     """Simple endpoint to verify the service is running."""
     # Return a status dictionary
-    return {"status": "ok", "service": "checkwp-api"}
+    return {"status": "ok", "service": "wpcheck-api"}
+
 
 # Define the main scan endpoint for file uploads
 @app.post("/scan")
@@ -110,7 +111,7 @@ async def scan_plugin(
         # Perform AI processing if the feature was requested
         if ai_enabled:
             # Determine API key priority
-            api_key = ai_key or os.environ.get("CHECKWP_AI_KEY")
+            api_key = ai_key or os.environ.get("WPCHECK_AI_KEY")
             # Ensure we have a key to work with
             if not api_key:
                 # Return configuration error

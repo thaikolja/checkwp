@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 from jinja2 import Environment, FileSystemLoader
 
-from checkwp.scanner.engine import Finding, ScanResult
+from wpcheck.scanner.engine import Finding, ScanResult
 
 # Mapping of theme names to their respective Twig template files
 THEMES = {
@@ -239,7 +239,7 @@ def generate_html_report(
         # Token usage
         "ai_tokens": result.ai_tokens,
         # Final unique ID
-        "report_id": f"CWP-{report_id}",
+        "report_id": f"WPC-{report_id}",
         # Letter grade
         "grade": grade,
         # Grade color HEX

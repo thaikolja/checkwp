@@ -20,7 +20,7 @@ test:
   stage: test
   image: python:3.10
   script:
-    - pytest --cov=checkwp tests/
+    - pytest --cov=wpcheck tests/
 
 lint:
   stage: lint
