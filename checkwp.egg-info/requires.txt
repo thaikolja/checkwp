@@ -1,0 +1,13 @@
+rich>=13.0
+jinja2>=3.1
+openai>=1.0
+chardet>=5.0
+fastapi>=0.100
+uvicorn>=0.20
+python-multipart>=0.0.6
+
+[dev]
+pytest>=7.0
+pytest-cov>=4.0
+ruff>=0.4
+mypy>=1.0
