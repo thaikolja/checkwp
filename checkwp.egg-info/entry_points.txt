@@ -1,2 +1,0 @@
-[console_scripts]
-checkwp = checkwp.cli:main

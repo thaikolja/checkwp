@@ -6,34 +6,19 @@ This script handles user input, configures the scanner, and triggers report gene
 # Enable future type annotations
 from __future__ import annotations
 
-# Import standard argument parsing library
 import argparse
-# Import os for environment and path operations
 import os
-# Import sys for system-level exits and arguments
 import sys
-# Import webbrowser to open the HTML report automatically
 import webbrowser
-# Import Path for filesystem path manipulations
-from pathlib import Path
 
-# Import rich components for beautiful terminal output
 from rich.console import Console
-# Import rich panel for summary boxes
 from rich.panel import Panel
-# Import rich table for displaying findings
 from rich.table import Table
-# Import rich text for styled text segments
-from rich.text import Text
 
-# Import version information from the package root
 from checkwp import __version__
-# Import core scanner and result models
-from checkwp.scanner.engine import Scanner, ScanResult
-# Import severity enumeration for filtering
-from checkwp.scanner.patterns import Severity
-# Import report generation functions for HTML and JSON
 from checkwp.report.generator import generate_html_report, generate_json_report
+from checkwp.scanner.engine import Scanner, ScanResult
+from checkwp.scanner.patterns import Severity
 
 # Initialize a global console object for stderr output
 console = Console(stderr=True)
@@ -56,7 +41,10 @@ def _build_parser() -> argparse.ArgumentParser:
         # Set program name
         prog="checkwp",
         # Set project description
-        description="WordPress Plugin Security Checker — detect malware, backdoors, and vulnerabilities in WordPress plugins.",
+        description=(
+            "WordPress Plugin Security Checker — detect malware, backdoors, "
+            "and vulnerabilities in WordPress plugins."
+        ),
         # Use raw formatter to preserve formatting in epilog
         formatter_class=argparse.RawDescriptionHelpFormatter,
         # Add usage examples and author info to the bottom of the help
@@ -351,6 +339,23 @@ def _severity_from_str(s: str) -> Severity:
             "low": Severity.LOW}[s.lower()]
 
 
+def _print_nonfatal_errors(result: ScanResult) -> None:
+    """Print scanner warnings that did not stop the scan from completing."""
+    # Skip rendering when there are no warnings to show
+    if not result.errors:
+        # Nothing to print
+        return
+
+    # Render a compact warning panel with one line per captured issue
+    console.print(
+        Panel(
+            "\n".join(f"• {error}" for error in result.errors),
+            title="[bold yellow]Warnings[/]",
+            border_style="yellow",
+        )
+    )
+
+
 def _print_summary(result: ScanResult) -> None:
     """Print a rich summary table to stderr including grade and counts."""
     # Get the security grade string
@@ -406,7 +411,14 @@ def _print_summary(result: ScanResult) -> None:
             # Get color or default to white
             sc = sev_colors.get(f.severity.value, "white")
             # Add data row to the table
-            table.add_row(str(i), f"[{sc}]{f.severity.label}[/]", f.pattern.id, f.pattern.title, f.file_path, str(f.line_number))
+            table.add_row(
+                str(i),
+                f"[{sc}]{f.severity.label}[/]",
+                f.pattern.id,
+                f.pattern.title,
+                f.file_path,
+                str(f.line_number),
+            )
 
         # Print the completed table
         console.print(table)
@@ -439,6 +451,32 @@ def main(argv: list[str] | None = None) -> int:
     # Parse the command line arguments
     args = parser.parse_args(argv)
 
+    # Reject incompatible file-type filters explicitly
+    if args.php_only and args.js_only:
+        # Print error message
+        console.print("[red bold]Error:[/] --php-only and --js-only cannot be used together.")
+        # Exit with failure
+        return 1
+
+    # Validate numeric options so the scanner receives sane values
+    if args.threads < 1:
+        # Print error message
+        console.print("[red bold]Error:[/] --threads must be at least 1.")
+        # Exit with failure
+        return 1
+    # Validate file size limit to avoid silently skipping everything
+    if args.max_file_size <= 0:
+        # Print error message
+        console.print("[red bold]Error:[/] --max-file-size must be greater than 0.")
+        # Exit with failure
+        return 1
+    # Validate context line count so list slicing remains intentional
+    if args.context_lines < 0:
+        # Print error message
+        console.print("[red bold]Error:[/] --context-lines cannot be negative.")
+        # Exit with failure
+        return 1
+
     # Handle color disabling flag
     if args.no_color:
         # Tell rich to stop using terminal colors
@@ -457,7 +495,7 @@ def main(argv: list[str] | None = None) -> int:
         console.print(f"[red bold]Error:[/] '{args.path}' does not exist.")
         # Return failure code
         return 1
-    
+
     # Ensure target is either a directory or a zip archive
     if not os.path.isdir(target) and not target.lower().endswith(".zip"):
         # Print error message
@@ -499,7 +537,10 @@ def main(argv: list[str] | None = None) -> int:
         # Show target path
         console.print(f"[bold cyan]Scanning:[/] {target}")
         # Show configuration summary line
-        console.print(f"[dim]Mode: {'deep' if args.deep else ('quick' if args.quick else 'standard')} • Threads: {args.threads} • Min severity: {severity.label}[/dim]")
+        scan_mode = "deep" if args.deep else ("quick" if args.quick else "standard")
+        console.print(
+            f"[dim]Mode: {scan_mode} • Threads: {args.threads} • Min severity: {severity.label}[/dim]"
+        )
         # Extra spacing
         console.print()
 
@@ -526,16 +567,33 @@ def main(argv: list[str] | None = None) -> int:
     # Import rich components for the progress bar
     from rich.progress import Progress, SpinnerColumn, TextColumn
     # Run the scan inside a rich progress context
-    with Progress(SpinnerColumn(), TextColumn("[bold cyan]Scanning files...[/]"), console=console, disable=args.quiet) as progress:
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold cyan]Scanning files...[/]"),
+        console=console,
+        disable=args.quiet,
+    ):
         # Add a placeholder task for the progress bar
-        task = progress.add_task("scan", total=None)
         # Execute the scan operation
         result = scanner.scan()
 
-    # Early exit logic if the target fails WordPress plugin validation
-    if any("Invalid WordPress plugin" in e for e in result.errors):
-        # Print the validation error
-        console.print(f"\n[red bold]✖ Validation Error:[/] {result.errors[0]}")
+    # Treat hard scan failures as fatal CLI errors with clear messages
+    fatal_errors = [
+        error
+        for error in result.errors
+        if error.startswith(
+            (
+                "Invalid WordPress plugin:",
+                "Invalid ZIP archive:",
+                "Failed to extract ZIP:",
+                "No scannable files found",
+                "Target must be a directory or a valid .zip file.",
+            )
+        )
+    ]
+    if fatal_errors:
+        # Print the first fatal error
+        console.print(f"\n[red bold]✖ Scan Failed:[/] {fatal_errors[0]}")
         # Exit with failure
         return 1
 
@@ -569,10 +627,10 @@ def main(argv: list[str] | None = None) -> int:
                 # Set temperature
                 temperature=args.ai_temperature,
             )
-            
+
             # Verify connectivity before starting batch analysis
             analyzer.check_connection()
-            
+
             # Run the AI verification on findings
             result = analyzer.analyze_findings(result)
             # Store metadata in result
@@ -590,6 +648,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # Display the final summary dashboard if not in quiet mode
     if not args.quiet:
+        # Print non-fatal warnings first so the summary still reflects the completed scan
+        _print_nonfatal_errors(result)
         # Print summary panel and table
         _print_summary(result)
 
@@ -618,9 +678,16 @@ def main(argv: list[str] | None = None) -> int:
     output_path = os.path.abspath(output_path)
 
     # Write report content to disk
-    with open(output_path, "w", encoding="utf-8") as f:
-        # Write string to file
-        f.write(report_content)
+    try:
+        # Open the report file for writing
+        with open(output_path, "w", encoding="utf-8") as f:
+            # Write string to file
+            f.write(report_content)
+    except OSError as exc:
+        # Print a clear write error instead of a stack trace
+        console.print(f"[red bold]Error:[/] Could not write report: {exc}")
+        # Exit with failure
+        return 1
 
     # Inform user of saved report
     if not args.quiet:

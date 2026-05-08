@@ -6,22 +6,14 @@ This module transforms the raw scan results into beautiful HTML and structured J
 # Import future type annotations
 from __future__ import annotations
 
-# Import hashlib for deterministic report ID generation
 import hashlib
-# Import html for escaping text
-import html
-# Import json for structured output
 import json
-# Import os for path handling
 import os
-# Import uuid for unique identifiers
-import uuid
-# Import datetime for scan timestamps
 from datetime import datetime, timezone
-# Import Path for file operations
-from pathlib import Path
-# Import Optional for type hinting
-from typing import Optional
+
+from jinja2 import Environment, FileSystemLoader
+
+from checkwp.scanner.engine import Finding, ScanResult
 
 # Mapping of theme names to their respective Twig template files
 THEMES = {
@@ -29,13 +21,6 @@ THEMES = {
     "sleek": "theme.twig",
 }
 
-# Import Jinja2 environment and loader
-from jinja2 import Environment, FileSystemLoader
-
-# Import domain models from the scanner engine
-from checkwp.scanner.engine import ScanResult, Finding
-# Import severity enum for formatting
-from checkwp.scanner.patterns import Severity
 
 # Define the absolute directory where templates are stored
 TEMPLATE_DIR = os.path.dirname(__file__)
@@ -63,13 +48,29 @@ def _inline_code_filter(text: str) -> str:
     # List of regex substitution patterns and their HTML replacements
     patterns = [
         # Match function calls like foo()
-        (r'(\b[a-zA-Z_]\w*\s*\(\))', r'<code class="mono bg-slate-100 px-1 rounded text-rose-600 font-bold text-[0.9em]">\1</code>'),
+        (
+            r'(\b[a-zA-Z_]\w*\s*\(\))',
+            r'<code class="mono bg-slate-100 px-1 rounded text-rose-600 font-bold text-[0.9em]">\1</code>',
+        ),
         # Match PHP variables like $variable
-        (r'(\$[a-zA-Z_]\w*)', r'<code class="mono bg-slate-100 px-1 rounded text-indigo-600 text-[0.9em]">\1</code>'),
+        (
+            r'(\$[a-zA-Z_]\w*)',
+            r'<code class="mono bg-slate-100 px-1 rounded text-indigo-600 text-[0.9em]">\1</code>',
+        ),
         # Match PHP superglobals like $_GET
-        (r'(\$_(?:GET|POST|REQUEST|SERVER|COOKIE|SESSION))', r'<code class="mono bg-slate-100 px-1 rounded text-amber-600 text-[0.9em] font-bold">\1</code>'),
+        (
+            r'(\$_(?:GET|POST|REQUEST|SERVER|COOKIE|SESSION))',
+            r'<code class="mono bg-slate-100 px-1 rounded text-amber-600 text-[0.9em] font-bold">\1</code>',
+        ),
         # Match common security-sensitive or relevant WP functions
-        (r'(\b(?:eval|system|exec|passthru|shell_exec|assert|create_function|unserialize|innerHTML|document\.write|wp_remote_get|wpdb|prepare|sanitize_text_field|esc_html|esc_attr)\b)', r'<code class="mono bg-rose-50 px-1 rounded text-rose-700 font-bold">\1</code>'),
+        (
+            r'('\
+            r'\b(?:eval|system|exec|passthru|shell_exec|assert|create_function|unserialize|'
+            r'innerHTML|document\.write|wp_remote_get|wpdb|prepare|sanitize_text_field|'
+            r'esc_html|esc_attr)\b'\
+            r')',
+            r'<code class="mono bg-rose-50 px-1 rounded text-rose-700 font-bold">\1</code>',
+        ),
     ]
     # Apply every transformation to the text
     for pattern, replacement in patterns:
@@ -152,7 +153,7 @@ def _build_finding_dict(f: Finding) -> dict:
 
 def generate_html_report(
     result: ScanResult,
-    output_path: Optional[str] = None,
+    output_path: str | None = None,
     theme: str = "sleek",
 ) -> str:
     """
@@ -172,7 +173,11 @@ def generate_html_report(
     env.filters["inline_code"] = _inline_code_filter
 
     # Get the theme template file
-    template_file = THEMES["sleek"]
+    template_file = THEMES.get(theme)
+    # Fail fast for unsupported themes so callers get a clear error
+    if template_file is None:
+        # Raise an explicit theme error for unsupported values
+        raise ValueError(f"Unknown report theme: {theme}")
     # Load template into memory
     template = env.get_template(template_file)
 

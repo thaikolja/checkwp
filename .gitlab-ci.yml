@@ -1,0 +1,32 @@
+stages:
+  - test
+  - lint
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  paths:
+    - .cache/pip
+    - .venv/
+
+test:
+  stage: test
+  image: python:3.10
+  before_script:
+    - python -m venv .venv
+    - source .venv/bin/activate
+    - pip install -e ".[dev]"
+  script:
+    - pytest --cov=checkwp tests/
+
+lint:
+  stage: lint
+  image: python:3.10
+  before_script:
+    - python -m venv .venv
+    - source .venv/bin/activate
+    - pip install -e ".[dev]"
+  script:
+    - ruff check .
+    - mypy src/

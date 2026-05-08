@@ -6,24 +6,18 @@ This module uses artificial intelligence to verify scan findings and reduce fals
 # Enable future type annotations
 from __future__ import annotations
 
-# Import os for environment management
-import os
-# Import typing for structural hints
-from typing import List, Optional
-
-# Import rich for terminal status and progress bars
 from rich.console import Console
-# Import progress bar components
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-# Import models from the scanner engine
 from checkwp.scanner.engine import Finding, ScanResult
 
 # Initialize local console for status messages
 console = Console(stderr=True)
 
 # Define the persona and instructions for the AI auditor
-SYSTEM_PROMPT = """You are an expert WordPress security auditor with deep knowledge of PHP, JavaScript, and WordPress internals. You are analyzing findings from an automated vulnerability scanner.
+SYSTEM_PROMPT = """You are an expert WordPress security auditor with deep knowledge of PHP,
+JavaScript, and WordPress internals. You are analyzing findings from an automated
+vulnerability scanner.
 
 For each finding, you must:
 1. Determine if it is a TRUE POSITIVE or FALSE POSITIVE
@@ -38,7 +32,7 @@ ANALYSIS: <your brief explanation>
 Be conservative — if uncertain, lean toward TRUE_POSITIVE. Focus on WordPress-specific context."""
 
 
-def _build_finding_prompt(finding: Finding, file_content: Optional[str] = None) -> str:
+def _build_finding_prompt(finding: Finding, file_content: str | None = None) -> str:
     """Constructs a detailed text prompt describing a single security finding for the AI."""
     # Format code context before the finding
     ctx_before = "\n".join(finding.context_before) if finding.context_before else "(no context)"
@@ -78,13 +72,13 @@ def _build_finding_prompt(finding: Finding, file_content: Optional[str] = None) 
     return prompt
 
 
-def _batch_findings(findings: List[Finding], batch_size: int = 5) -> list[list[Finding]]:
+def _batch_findings(findings: list[Finding], batch_size: int = 5) -> list[list[Finding]]:
     """Partitions a list of findings into smaller groups to optimize API requests and cost."""
     # List comprehension to slice the findings list
     return [findings[i:i + batch_size] for i in range(0, len(findings), batch_size)]
 
 
-def _build_batch_prompt(batch: List[Finding]) -> str:
+def _build_batch_prompt(batch: list[Finding]) -> str:
     """Aggregates multiple findings into a single consolidated prompt for batch processing."""
     # List to store individual finding descriptions
     parts = []
@@ -107,12 +101,17 @@ def _build_batch_prompt(batch: List[Finding]) -> str:
     # Define instructions header
     header = f"Analyze these {len(batch)} findings. For EACH finding, respond with:\n"
     # Append required format example
-    header += "FINDING <number>:\nVERDICT: TRUE_POSITIVE | FALSE_POSITIVE\nSEVERITY: CRITICAL | HIGH | MEDIUM | LOW | INFO\nANALYSIS: <explanation>\n\n"
+    header += (
+        "FINDING <number>:\n"
+        "VERDICT: TRUE_POSITIVE | FALSE_POSITIVE\n"
+        "SEVERITY: CRITICAL | HIGH | MEDIUM | LOW | INFO\n"
+        "ANALYSIS: <explanation>\n\n"
+    )
     # Combine header and parts
     return header + "\n".join(parts)
 
 
-def _parse_batch_response(response: str, batch: List[Finding]) -> None:
+def _parse_batch_response(response: str, batch: list[Finding]) -> None:
     """
     Parses the unstructured text returned by the LLM.
     Updates the finding objects with AI analysis and verification status.
@@ -139,8 +138,6 @@ def _parse_batch_response(response: str, batch: List[Finding]) -> None:
 
         # Extract the verdict line
         verdict_m = re.search(r'VERDICT\s*:\s*(TRUE_POSITIVE|FALSE_POSITIVE)', block, re.IGNORECASE)
-        # Extract the severity line
-        severity_m = re.search(r'SEVERITY\s*:\s*(CRITICAL|HIGH|MEDIUM|LOW|INFO)', block, re.IGNORECASE)
         # Extract the analysis text
         analysis_m = re.search(r'ANALYSIS\s*:\s*(.+?)(?:\n|$)', block, re.IGNORECASE | re.DOTALL)
 

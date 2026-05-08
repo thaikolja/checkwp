@@ -4,30 +4,17 @@ This module handles the heavy lifting of finding files, checking headers, and id
 """
 
 # Import type annotations for compatibility
-from __future__ import annotations
-
-# Import OS module for path and directory operations
-import os
-# Import regex module for pattern matching
-import re
-# Import hashlib for file integrity checks
 import hashlib
-# Import math for entropy calculations
 import math
-# Import concurrent execution tools for multi-threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
-# Import dataclasses for structured data models
-from dataclasses import dataclass, field
-# Import Path for filesystem interactions
-from pathlib import Path
-# Import typing for type hinting
-from typing import List, Optional, Dict, Set
-# Import zipfile for archive handling
-import zipfile
-# Import tempfile for temporary directory creation
-import tempfile
-# Import shutil for directory cleanup
+import os
+import re
 import shutil
+import tempfile
+import time
+import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+from pathlib import Path
 
 # Import chardet for character encoding detection
 import chardet
@@ -58,13 +45,13 @@ class Finding:
     # The content of the line where the match occurred
     line_content: str
     # Lines of code appearing before the finding for context
-    context_before: List[str] = field(default_factory=list)
+    context_before: list[str] = field(default_factory=list)
     # Lines of code appearing after the finding for context
-    context_after: List[str] = field(default_factory=list)
+    context_after: list[str] = field(default_factory=list)
     # The analysis text provided by an AI model
-    ai_analysis: Optional[str] = None
+    ai_analysis: str | None = None
     # Whether an AI model confirmed the finding as a true positive
-    ai_confirmed: Optional[bool] = None
+    ai_confirmed: bool | None = None
     # Flag indicating if the finding is considered a false positive
     false_positive: bool = False
 
@@ -116,11 +103,11 @@ class ScanResult:
     # The detected or extracted name of the plugin
     plugin_name: str
     # List of all identified findings
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     # List of metadata for all successfully scanned files
-    files_scanned: List[FileInfo] = field(default_factory=list)
+    files_scanned: list[FileInfo] = field(default_factory=list)
     # List of file paths that were skipped during the scan
-    files_skipped: List[str] = field(default_factory=list)
+    files_skipped: list[str] = field(default_factory=list)
     # Time taken to complete the scan in seconds
     scan_duration: float = 0.0
     # Whether AI analysis was performed
@@ -132,7 +119,7 @@ class ScanResult:
     # The mode used for scanning (e.g., 'standard' or 'deep')
     scan_mode: str = "standard"
     # List of error messages encountered during the scan
-    errors: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
     @property
     def total_findings(self) -> int:
@@ -285,7 +272,7 @@ DEFAULT_EXCLUDE = {
 }
 
 # Set of file extensions to include based on language map
-DEFAULT_EXTENSIONS = set()
+DEFAULT_EXTENSIONS: set[str] = set()
 # Loop through language map and add all extensions
 for exts in LANGUAGE_EXTENSIONS.values():
     # Update set with extensions
@@ -302,6 +289,15 @@ BINARY_EXTENSIONS = {
     ".mo", ".po",
 }
 
+# Maximum number of bytes to read from a text file in a single pass
+MAX_TEXT_READ_BYTES = 2 * 1024 * 1024
+
+# Only the beginning of plugin files is needed for header validation
+PLUGIN_HEADER_READ_BYTES = 64 * 1024
+
+# Guard rail against extremely large ZIP archives during extraction
+MAX_ZIP_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
+
 
 def _calculate_entropy(data: bytes) -> float:
     """
@@ -313,7 +309,7 @@ def _calculate_entropy(data: bytes) -> float:
         # Avoid division by zero
         return 0.0
     # Map byte values to their frequency counts
-    freq: Dict[int, int] = {}
+    freq: dict[int, int] = {}
     # Iterate through every byte
     for byte in data:
         # Increment frequency map
@@ -346,14 +342,18 @@ def _detect_language(ext: str) -> str:
     return "unknown"
 
 
-def _read_file_safe(path: str) -> Optional[str]:
+def _read_file_safe(path: str, *, max_bytes: int = MAX_TEXT_READ_BYTES) -> str | None:
     """
     Attempt to read a file with intelligent encoding detection.
     Skips binary files and handles decode errors gracefully.
     """
     try:
-        # Read raw bytes from disk
-        raw = Path(path).read_bytes()
+        # Read a bounded amount of data from disk to avoid memory spikes
+        with Path(path).open("rb") as file_obj:
+            # Read at most one byte past the configured limit so we can truncate safely
+            raw = file_obj.read(max_bytes + 1)
+        # Truncate oversized content to the allowed read window
+        raw = raw[:max_bytes]
         # Check for null bytes which indicate binary content
         if b"\x00" in raw[:8192]:
             # Skip binary files
@@ -385,8 +385,8 @@ class Scanner:
         *,
         severity_threshold: Severity = Severity.LOW,
         max_file_size_kb: int = 2048,
-        exclude_dirs: Optional[Set[str]] = None,
-        include_extensions: Optional[Set[str]] = None,
+        exclude_dirs: set[str] | None = None,
+        include_extensions: set[str] | None = None,
         deep_scan: bool = False,
         threads: int = 4,
         context_lines: int = 3,
@@ -399,9 +399,13 @@ class Scanner:
         # Convert KB to bytes
         self.max_file_size = max_file_size_kb * 1024
         # Set excluded directories or use defaults
-        self.exclude_dirs = exclude_dirs or DEFAULT_EXCLUDE
+        self.exclude_dirs = set(exclude_dirs) if exclude_dirs is not None else set(DEFAULT_EXCLUDE)
         # Set included extensions or use defaults
-        self.include_extensions = include_extensions or DEFAULT_EXTENSIONS
+        self.include_extensions = (
+            {ext.lower() for ext in include_extensions}
+            if include_extensions is not None
+            else set(DEFAULT_EXTENSIONS)
+        )
         # Toggle entropy analysis
         self.deep_scan = deep_scan
         # Cap threads to at least 1
@@ -411,7 +415,7 @@ class Scanner:
         # Load all vulnerability signatures
         self._patterns = ALL_PATTERNS
         # Initialize temp directory tracker
-        self._temp_dir = None
+        self._temp_dir: str | None = None
         # Track the actual path being scanned (changes if ZIP is extracted)
         self._real_target_path = self.target_path
 
@@ -427,7 +431,7 @@ class Scanner:
                 # Build file path
                 fpath = os.path.join(root, "readme.txt")
                 # Read file safely
-                content = _read_file_safe(fpath)
+                content = _read_file_safe(fpath, max_bytes=PLUGIN_HEADER_READ_BYTES)
                 # Search for WordPress readme headers
                 if content and re.search(r"===\s*[\w\s]+\s*===", content):
                     # Found a valid readme
@@ -439,7 +443,7 @@ class Scanner:
                     # Build file path
                     fpath = os.path.join(root, fname)
                     # Read file safely
-                    content = _read_file_safe(fpath)
+                    content = _read_file_safe(fpath, max_bytes=PLUGIN_HEADER_READ_BYTES)
                     # Search for standard 'Plugin Name:' header
                     if content and re.search(r"Plugin Name:", content, re.IGNORECASE):
                         # Found a valid plugin file
@@ -447,18 +451,109 @@ class Scanner:
         # No headers found
         return False
 
-    def _discover_files(self) -> tuple[List[str], List[str]]:
+    def _cleanup_temp_dir(self) -> None:
+        """Delete any temporary extraction directory created during a ZIP scan."""
+        # Skip cleanup when no temporary directory is active
+        if not self._temp_dir:
+            # Nothing to clean up
+            return
+        # Ignore filesystem cleanup failures to avoid masking scan errors
+        shutil.rmtree(self._temp_dir, ignore_errors=True)
+        # Reset internal state after cleanup
+        self._temp_dir = None
+
+    def _plugin_name(self) -> str:
+        """Return a friendly plugin name for reports based on the original target."""
+        # Use the ZIP stem for archive scans so the report name is cleaner
+        if self.target_path.lower().endswith(".zip"):
+            # Drop the archive extension
+            return Path(self.target_path).stem
+        # Use the directory name for extracted plugins
+        return os.path.basename(self.target_path)
+
+    def _build_error_result(self, message: str) -> ScanResult:
+        """Create a standard error result object for early-return failure paths."""
+        # Build a minimal result payload with the intended plugin name
+        result = ScanResult(
+            plugin_path=self.target_path,
+            plugin_name=self._plugin_name(),
+            scan_mode="deep" if self.deep_scan else "standard",
+        )
+        # Record the user-facing error message
+        result.errors.append(message)
+        # Return the populated result
+        return result
+
+    def _extract_zip_safely(self, zip_path: str, destination: str) -> None:
+        """Safely extract a ZIP archive while preventing Zip Slip and symlink abuse."""
+        # Resolve the extraction root once for path traversal validation
+        destination_root = Path(destination).resolve()
+        # Track the total expanded size to limit decompression abuse
+        total_uncompressed_size = 0
+
+        # Open the archive for manual, validated extraction
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            # Validate and extract each member independently
+            for member in zip_ref.infolist():
+                # Skip empty filenames that cannot be extracted meaningfully
+                if not member.filename:
+                    # Continue with the next entry
+                    continue
+
+                # Reject archives that expand to an unreasonable total size
+                total_uncompressed_size += member.file_size
+                if total_uncompressed_size > MAX_ZIP_UNCOMPRESSED_BYTES:
+                    # Abort extraction before disk usage becomes excessive
+                    raise ValueError("ZIP archive expands beyond the maximum safe size.")
+
+                # Reject absolute archive paths outright
+                if Path(member.filename).is_absolute():
+                    # Prevent writing outside the temporary extraction root
+                    raise ValueError("ZIP archive contains unsafe absolute paths.")
+
+                # Resolve the final destination path for this member
+                target_path = (destination_root / member.filename).resolve()
+                try:
+                    # Ensure the resolved path stays inside the extraction directory
+                    target_path.relative_to(destination_root)
+                except ValueError as exc:
+                    # Abort when a path traversal entry is encountered
+                    raise ValueError("ZIP archive contains unsafe path traversal entries.") from exc
+
+                # Reject symlinks because they can be abused to escape the extraction root
+                unix_mode = member.external_attr >> 16
+                if unix_mode and (unix_mode & 0o170000) == 0o120000:
+                    # Disallow symlink members entirely
+                    raise ValueError("ZIP archive contains symbolic links, which are not supported.")
+
+                # Create directories directly without opening them as files
+                if member.is_dir():
+                    # Ensure the directory exists
+                    target_path.mkdir(parents=True, exist_ok=True)
+                    # Continue after handling the directory entry
+                    continue
+
+                # Ensure the parent directory exists before writing the file
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                # Stream the file contents safely to disk
+                with zip_ref.open(member, "r") as source, target_path.open("wb") as target_file:
+                    # Copy the archive member without trusting extractall()
+                    while chunk := source.read(1024 * 64):
+                        # Write the current chunk to the extracted file
+                        target_file.write(chunk)
+
+    def _discover_files(self) -> tuple[list[str], list[str]]:
         """
         Find all files that meet the scanning criteria.
         Filters by extension, size, and exclusion lists.
         """
         # List for valid files
-        scannable: List[str] = []
+        scannable: list[str] = []
         # List for skipped files
-        skipped: List[str] = []
+        skipped: list[str] = []
 
         # Walk the directory tree
-        for root, dirs, files in os.walk(self.target_path):
+        for root, dirs, files in os.walk(self._real_target_path):
             # Modify dirs list to avoid walking into excluded folders
             dirs[:] = [d for d in dirs if d not in self.exclude_dirs]
 
@@ -472,14 +567,14 @@ class Scanner:
                 # Skip known binary types
                 if ext in BINARY_EXTENSIONS:
                     # Add to skipped list
-                    skipped.append(fpath)
+                    skipped.append(os.path.relpath(fpath, self._real_target_path))
                     # Continue loop
                     continue
 
                 # Skip if extension is not in include list
                 if ext not in self.include_extensions:
                     # Add to skipped list
-                    skipped.append(fpath)
+                    skipped.append(os.path.relpath(fpath, self._real_target_path))
                     # Continue loop
                     continue
 
@@ -488,21 +583,21 @@ class Scanner:
                     size = os.path.getsize(fpath)
                 except OSError:
                     # Skip if OS error
-                    skipped.append(fpath)
+                    skipped.append(os.path.relpath(fpath, self._real_target_path))
                     # Continue loop
                     continue
 
                 # Skip files larger than the threshold
                 if size > self.max_file_size:
                     # Add to skipped list
-                    skipped.append(fpath)
+                    skipped.append(os.path.relpath(fpath, self._real_target_path))
                     # Continue loop
                     continue
 
                 # Skip empty files
                 if size == 0:
                     # Add to skipped list
-                    skipped.append(fpath)
+                    skipped.append(os.path.relpath(fpath, self._real_target_path))
                     # Continue loop
                     continue
 
@@ -512,7 +607,7 @@ class Scanner:
         # Return found and skipped files
         return scannable, skipped
 
-    def _scan_file(self, fpath: str) -> tuple[FileInfo, List[Finding]]:
+    def _scan_file(self, fpath: str) -> tuple[FileInfo, list[Finding]]:
         """
         The core analysis logic for a single file.
         Detects language, calculates entropy, and runs pattern matching.
@@ -527,7 +622,12 @@ class Scanner:
         content = _read_file_safe(fpath)
 
         # Read raw bytes for checksum and entropy
-        raw = Path(fpath).read_bytes()
+        try:
+            # Read the raw file bytes for hashing and entropy calculations
+            raw = Path(fpath).read_bytes()
+        except OSError as exc:
+            # Raise a clearer error that the caller can surface in the result
+            raise RuntimeError(f"Could not read file contents: {exc}") from exc
         # Calculate hash
         sha256 = hashlib.sha256(raw).hexdigest()
         # Calculate entropy
@@ -554,7 +654,7 @@ class Scanner:
         )
 
         # List to store results
-        findings: List[Finding] = []
+        findings: list[Finding] = []
         # Filter patterns by language
         applicable_patterns = [
             p for p in self._patterns
@@ -627,7 +727,10 @@ class Scanner:
                     title="High entropy file (possible obfuscation)",
                     severity=Severity.MEDIUM,
                     pattern="",
-                    description=f"File has unusually high entropy ({entropy:.2f}/8.0), suggesting obfuscated or encoded content.",
+                    description=(
+                        f"File has unusually high entropy ({entropy:.2f}/8.0), "
+                        "suggesting obfuscated or encoded content."
+                    ),
                     cwe="CWE-506",
                     recommendation="Manually review this file for obfuscated malicious code.",
                     confidence="medium",
@@ -646,85 +749,49 @@ class Scanner:
         Perform the full scan procedure.
         Handles extraction, discovery, multi-threaded analysis, and cleanup.
         """
-        # Determine if target is a ZIP file
-        if zipfile.is_zipfile(self.target_path):
-            # Create temp directory
-            self._temp_dir = tempfile.mkdtemp(prefix="checkwp_")
-            try:
-                # Open zip archive
-                with zipfile.ZipFile(self.target_path, 'r') as zip_ref:
-                    # Extract all files
-                    zip_ref.extractall(self._temp_dir)
-                
-                # Check for WordPress plugin markers
-                if not self._validate_plugin_headers(self._temp_dir):
-                    # Delete temp dir
-                    shutil.rmtree(self._temp_dir)
-                    # Create empty result
-                    result = ScanResult(plugin_path=self.target_path, plugin_name=os.path.basename(self.target_path))
-                    # Add validation error
-                    result.errors.append("Invalid WordPress plugin: No 'Plugin Name:' header found in ZIP.")
-                    # Abort and return
-                    return result
-                
-                # Set real target to extracted path
-                self._real_target_path = self._temp_dir
-            except Exception as e:
-                # Cleanup temp dir on error
-                if self._temp_dir and os.path.exists(self._temp_dir):
-                    # Delete temp dir
-                    shutil.rmtree(self._temp_dir)
-                # Create empty result
-                result = ScanResult(plugin_path=self.target_path, plugin_name=os.path.basename(self.target_path))
-                # Add extraction error
-                result.errors.append(f"Failed to extract ZIP: {e}")
-                # Abort and return
-                return result
-
-        # Get base name for plugin
-        plugin_name = os.path.basename(self.target_path)
-        # Initialize result object
+        # Reset real target path so repeated scans on the same instance are safe
+        self._real_target_path = self.target_path
+        # Initialize result object early so all return paths are consistent
         result = ScanResult(
             plugin_path=self.target_path,
-            plugin_name=plugin_name,
+            plugin_name=self._plugin_name(),
             scan_mode="deep" if self.deep_scan else "standard",
         )
 
-        # Lists for file discovery
-        files: List[str] = []
-        # Lists for skipped files
-        skipped: List[str] = []
-        
-        # Traverse filesystem
-        for root, dirs, fnames in os.walk(self._real_target_path):
-            # In-place directory filtering
-            dirs[:] = [d for d in dirs if d not in self.exclude_dirs]
-            # Iterate through files
-            for fname in fnames:
-                # Absolute path
-                fpath = os.path.join(root, fname)
-                # Extension
-                ext = os.path.splitext(fname)[1].lower()
-                # Filter by extension
-                if ext in BINARY_EXTENSIONS or ext not in self.include_extensions:
-                    # Mark as skipped
-                    skipped.append(os.path.relpath(fpath, self._real_target_path))
-                    # Skip
-                    continue
-                try:
-                    # Get size
-                    size = os.path.getsize(fpath)
-                    # Filter by size
-                    if size > self.max_file_size or size == 0:
-                        # Mark as skipped
-                        skipped.append(os.path.relpath(fpath, self._real_target_path))
-                        # Skip
-                        continue
-                    # Add to scan list
-                    files.append(fpath)
-                except OSError:
-                    # Skip on error
-                    skipped.append(os.path.relpath(fpath, self._real_target_path))
+        # Handle user-supplied .zip paths that are not actually valid ZIP files
+        if self.target_path.lower().endswith(".zip") and not zipfile.is_zipfile(self.target_path):
+            # Return a clear validation error instead of silently walking a file path
+            return self._build_error_result("Invalid ZIP archive: The file is not a valid or readable ZIP.")
+
+        # Extract ZIP archives into a temporary directory before scanning
+        if zipfile.is_zipfile(self.target_path):
+            # Create a temporary extraction root
+            self._temp_dir = tempfile.mkdtemp(prefix="checkwp_")
+            try:
+                # Extract the archive using path traversal and symlink protections
+                self._extract_zip_safely(self.target_path, self._temp_dir)
+                # Scan the extracted contents instead of the archive file itself
+                self._real_target_path = self._temp_dir
+            except (OSError, ValueError, zipfile.BadZipFile) as exc:
+                # Clean up any partial extraction state before returning the error
+                self._cleanup_temp_dir()
+                # Return a user-friendly extraction error message
+                return self._build_error_result(f"Failed to extract ZIP: {exc}")
+        elif not os.path.isdir(self.target_path):
+            # Refuse to scan unsupported target types
+            return self._build_error_result("Target must be a directory or a valid .zip file.")
+
+        # Ensure the extracted or on-disk target looks like a WordPress plugin
+        if not self._validate_plugin_headers(self._real_target_path):
+            # Clean up before returning the validation error
+            self._cleanup_temp_dir()
+            # Abort the scan with a clear explanation
+            return self._build_error_result(
+                "Invalid WordPress plugin: No 'Plugin Name:' header or valid readme.txt found."
+            )
+
+        # Discover scannable files and files that were skipped
+        files, skipped = self._discover_files()
 
         # Store skipped files
         result.files_skipped = skipped
@@ -734,14 +801,10 @@ class Scanner:
             # Add error
             result.errors.append("No scannable files found in the target.")
             # Cleanup temp dir
-            if self._temp_dir and os.path.exists(self._temp_dir):
-                # Delete
-                shutil.rmtree(self._temp_dir)
+            self._cleanup_temp_dir()
             # Return
             return result
 
-        # Record start time
-        import time
         # Get timestamp
         start = time.time()
 
@@ -764,7 +827,7 @@ class Scanner:
                         for f in findings:
                             # Update path
                             f.file_path = file_info.relative_path
-                            
+
                     # Store info
                     result.files_scanned.append(file_info)
                     # Store findings
@@ -777,9 +840,7 @@ class Scanner:
         result.scan_duration = round(time.time() - start, 3)
 
         # Final cleanup of temp directory
-        if self._temp_dir and os.path.exists(self._temp_dir):
-            # Delete directory
-            shutil.rmtree(self._temp_dir)
+        self._cleanup_temp_dir()
 
         # Sort all findings by severity, path, and line number
         result.findings.sort(key=lambda f: (-f.severity, f.file_path, f.line_number))

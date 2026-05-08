@@ -5,12 +5,10 @@ This module defines the database of regex signatures, impact analysis, and remed
 
 # Enable future type annotations
 from __future__ import annotations
-# Import dataclasses for defining structured pattern models
+
 from dataclasses import dataclass, field
-# Import IntEnum for severity ranking
 from enum import IntEnum
-# Import List for type hinting
-from typing import List
+
 
 # Define severity levels as an integer-backed enumeration
 class Severity(IntEnum):
@@ -74,7 +72,7 @@ class VulnPattern:
 
 # ─── PHP VULNERABILITY PATTERNS ─────────────────────────────────────
 # Collection of security signatures targeting PHP code
-PHP_PATTERNS: List[VulnPattern] = [
+PHP_PATTERNS: list[VulnPattern] = [
     # ── CRITICAL: Remote Code Execution / Backdoors ──
     # High-impact rules for code execution vulnerabilities
     VulnPattern(
@@ -624,6 +622,32 @@ PHP_PATTERNS: List[VulnPattern] = [
         # Low confidence
         confidence="low",
     ),
+    # REST route permission callback check
+    VulnPattern(
+        # ID
+        id="PHP-AUTH-003", title="REST route exposed with __return_true permission callback",
+        # High severity because unauthenticated REST endpoints are a frequent exploitation path
+        severity=Severity.HIGH,
+        # Match explicit public permission callbacks in route definitions
+        pattern=r'''[\'\"]permission_callback[\'\"]\s*=>\s*[\'\"]?__return_true[\'\"]?''',
+        # Description
+        description="REST API route allows access to everyone via permission_callback => __return_true.",
+        # Impact
+        impact="If this endpoint performs state-changing actions, attackers may be able to modify site settings, create content, or expose sensitive data without logging in. Public REST endpoints are a common source of WordPress plugin vulnerabilities.",
+        # Layman fix
+        layman_fix="The plugin is making a WordPress API endpoint public to everyone. The developer should review whether this endpoint really needs to be public and, if not, add a proper permission check.",
+        # Technical checklist
+        step_by_step_fix=[
+            "Locate the register_rest_route() call referenced in the report.",
+            "Review what the endpoint does and whether anonymous access is actually required.",
+            "Replace __return_true with a permission_callback that checks user capabilities or validates a nonce/token.",
+            "Add tests for both authorized and unauthorized requests."
+        ],
+        # Metadata
+        cwe="CWE-862", recommendation="Use a permission_callback that enforces capability or token checks.",
+        # Confidence
+        confidence="medium",
+    ),
 
     # ── MEDIUM: Open Redirect ──
     # Rules for phishing redirects
@@ -971,7 +995,7 @@ PHP_PATTERNS: List[VulnPattern] = [
 
 # ─── JAVASCRIPT VULNERABILITY PATTERNS ──────────────────────────────
 # Collection of security signatures targeting JavaScript/TypeScript
-JS_PATTERNS: List[VulnPattern] = [
+JS_PATTERNS: list[VulnPattern] = [
     # innerHTML check
     VulnPattern(
         # ID
