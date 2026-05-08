@@ -1,4 +1,4 @@
-"""CLI entry point for checktwp — WordPress Plugin Security Checker."""
+"""CLI entry point for checkwp — WordPress Plugin Security Checker."""
 
 from __future__ import annotations
 
@@ -13,10 +13,10 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from checktwp import __version__
-from checktwp.scanner.engine import Scanner, ScanResult
-from checktwp.scanner.patterns import Severity
-from checktwp.report.generator import generate_html_report, generate_json_report
+from checkwp import __version__
+from checkwp.scanner.engine import Scanner, ScanResult
+from checkwp.scanner.patterns import Severity
+from checkwp.report.generator import generate_html_report, generate_json_report
 
 console = Console(stderr=True)
 
@@ -32,18 +32,18 @@ BANNER = r"""[bold gradient(#6366f1,#a855f7)]
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="checktwp",
+        prog="checkwp",
         description="WordPress Plugin Security Checker — detect malware, backdoors, and vulnerabilities in WordPress plugins.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  checktwp ./my-plugin
-  checktwp ./my-plugin -o report.html --deep
-  checktwp ./my-plugin --severity high --threads 8
-  checktwp ./my-plugin --ai --ai-key sk-... --ai-model gpt-4o
-  checktwp ./my-plugin --format json -o results.json
-  checktwp ./my-plugin --exclude "tests/*" --exclude "assets/*"
-  checktwp ./my-plugin --quick --no-open
+  checkwp ./my-plugin
+  checkwp ./my-plugin -o report.html --deep
+  checkwp ./my-plugin --severity high --threads 8
+  checkwp ./my-plugin --ai --ai-key sk-... --ai-model gpt-4o
+  checkwp ./my-plugin --format json -o results.json
+  checkwp ./my-plugin --exclude "tests/*" --exclude "assets/*"
+  checkwp ./my-plugin --quick --no-open
         """,
     )
 
@@ -149,7 +149,7 @@ Examples:
     ai_group.add_argument(
         "--ai-key",
         default=None,
-        help="API key for the AI provider. Can also use CHECKTWP_AI_KEY env var.",
+        help="API key for the AI provider. Can also use CHECKWP_AI_KEY env var.",
     )
     ai_group.add_argument(
         "--ai-provider",
@@ -196,7 +196,7 @@ Examples:
     parser.add_argument(
         "-V", "--version",
         action="version",
-        version=f"checktwp v{__version__}",
+        version=f"checkwp v{__version__}",
     )
 
     return parser
@@ -261,8 +261,12 @@ def main(argv: list[str] | None = None) -> int:
 
     # Validate path
     target = os.path.abspath(args.path)
-    if not os.path.isdir(target):
-        console.print(f"[red bold]Error:[/] '{args.path}' is not a valid directory.")
+    if not os.path.exists(target):
+        console.print(f"[red bold]Error:[/] '{args.path}' does not exist.")
+        return 1
+    
+    if not os.path.isdir(target) and not target.lower().endswith(".zip"):
+        console.print(f"[red bold]Error:[/] '{args.path}' must be a directory or a .zip file.")
         return 1
 
     # Build include extensions
@@ -272,11 +276,11 @@ def main(argv: list[str] | None = None) -> int:
     elif args.js_only:
         include_ext = {".js", ".jsx", ".ts", ".tsx", ".mjs"}
     elif args.include_ext:
-        from checktwp.scanner.engine import DEFAULT_EXTENSIONS
+        from checkwp.scanner.engine import DEFAULT_EXTENSIONS
         include_ext = DEFAULT_EXTENSIONS | set(args.include_ext)
 
     # Build exclude dirs
-    from checktwp.scanner.engine import DEFAULT_EXCLUDE
+    from checkwp.scanner.engine import DEFAULT_EXCLUDE
     exclude_dirs = DEFAULT_EXCLUDE | set(args.exclude)
 
     # Severity
@@ -308,16 +312,16 @@ def main(argv: list[str] | None = None) -> int:
 
     # AI analysis
     if args.ai:
-        api_key = args.ai_key or os.environ.get("CHECKTWP_AI_KEY")
+        api_key = args.ai_key or os.environ.get("CHECKWP_AI_KEY")
         if not api_key:
-            console.print("[red bold]Error:[/] AI mode requires --ai-key or CHECKTWP_AI_KEY environment variable.")
+            console.print("[red bold]Error:[/] AI mode requires --ai-key or CHECKWP_AI_KEY environment variable.")
             return 1
 
         if not args.quiet:
             console.print(f"\n[bold indigo]AI Analysis:[/] {args.ai_model} via {args.ai_provider}")
 
         try:
-            from checktwp.ai.analyzer import AIAnalyzer
+            from checkwp.ai.analyzer import AIAnalyzer
             analyzer = AIAnalyzer(
                 api_key=api_key,
                 model=args.ai_model,
@@ -357,7 +361,13 @@ def main(argv: list[str] | None = None) -> int:
     # Auto-open HTML
     if args.format == "html" and not args.no_open and not args.quiet:
         try:
-            webbrowser.open(f"file://{output_path}")
+            if sys.platform == 'darwin':
+                import subprocess
+                subprocess.call(('open', output_path))
+            elif sys.platform in ['win32', 'cygwin']:
+                os.startfile(output_path)
+            else:
+                webbrowser.open(f"file://{output_path}")
         except Exception:
             pass
 

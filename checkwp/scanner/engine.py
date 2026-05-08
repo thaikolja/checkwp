@@ -10,10 +10,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Dict, Set
+import zipfile
+import tempfile
+import shutil
 
 import chardet
 
-from checktwp.scanner.patterns import (
+from checkwp.scanner.patterns import (
     ALL_PATTERNS,
     LANGUAGE_EXTENSIONS,
     Severity,
@@ -233,6 +236,19 @@ class Scanner:
         self.threads = max(1, threads)
         self.context_lines = context_lines
         self._patterns = ALL_PATTERNS
+        self._temp_dir = None
+        self._real_target_path = self.target_path
+
+    def _validate_plugin_headers(self, path: str) -> bool:
+        """Check if any PHP file in the directory has a WordPress Plugin header."""
+        for root, _, files in os.walk(path):
+            for fname in files:
+                if fname.endswith(".php"):
+                    fpath = os.path.join(root, fname)
+                    content = _read_file_safe(fpath)
+                    if content and re.search(r"Plugin Name:", content, re.IGNORECASE):
+                        return True
+        return False
 
     def _discover_files(self) -> tuple[List[str], List[str]]:
         """Walk directory tree and discover scannable files."""
@@ -275,7 +291,7 @@ class Scanner:
 
     def _scan_file(self, fpath: str) -> tuple[FileInfo, List[Finding]]:
         """Scan a single file for vulnerabilities."""
-        rel_path = os.path.relpath(fpath, self.target_path)
+        rel_path = os.path.relpath(fpath, self._real_target_path)
         ext = os.path.splitext(fpath)[1].lower()
         lang = _detect_language(ext)
         content = _read_file_safe(fpath)
@@ -363,6 +379,28 @@ class Scanner:
 
     def scan(self) -> ScanResult:
         """Execute the full scan."""
+        # Handle ZIP target
+        if zipfile.is_zipfile(self.target_path):
+            self._temp_dir = tempfile.mkdtemp(prefix="checkwp_")
+            try:
+                with zipfile.ZipFile(self.target_path, 'r') as zip_ref:
+                    zip_ref.extractall(self._temp_dir)
+                
+                if not self._validate_plugin_headers(self._temp_dir):
+                    shutil.rmtree(self._temp_dir)
+                    result = ScanResult(plugin_path=self.target_path, plugin_name=os.path.basename(self.target_path))
+                    result.errors.append("Invalid WordPress plugin: No 'Plugin Name:' header found in ZIP.")
+                    return result
+                
+                # Update scanning target to extracted directory
+                self._real_target_path = self._temp_dir
+            except Exception as e:
+                if self._temp_dir and os.path.exists(self._temp_dir):
+                    shutil.rmtree(self._temp_dir)
+                result = ScanResult(plugin_path=self.target_path, plugin_name=os.path.basename(self.target_path))
+                result.errors.append(f"Failed to extract ZIP: {e}")
+                return result
+
         plugin_name = os.path.basename(self.target_path)
         result = ScanResult(
             plugin_path=self.target_path,
@@ -370,11 +408,33 @@ class Scanner:
             scan_mode="deep" if self.deep_scan else "standard",
         )
 
-        files, skipped = self._discover_files()
-        result.files_skipped = [os.path.relpath(s, self.target_path) for s in skipped]
+        # Discovery logic must use _real_target_path
+        files: List[str] = []
+        skipped: List[str] = []
+        
+        for root, dirs, fnames in os.walk(self._real_target_path):
+            dirs[:] = [d for d in dirs if d not in self.exclude_dirs]
+            for fname in fnames:
+                fpath = os.path.join(root, fname)
+                ext = os.path.splitext(fname)[1].lower()
+                if ext in BINARY_EXTENSIONS or ext not in self.include_extensions:
+                    skipped.append(os.path.relpath(fpath, self._real_target_path))
+                    continue
+                try:
+                    size = os.path.getsize(fpath)
+                    if size > self.max_file_size or size == 0:
+                        skipped.append(os.path.relpath(fpath, self._real_target_path))
+                        continue
+                    files.append(fpath)
+                except OSError:
+                    skipped.append(os.path.relpath(fpath, self._real_target_path))
+
+        result.files_skipped = skipped
 
         if not files:
-            result.errors.append("No scannable files found in the target directory.")
+            result.errors.append("No scannable files found in the target.")
+            if self._temp_dir and os.path.exists(self._temp_dir):
+                shutil.rmtree(self._temp_dir)
             return result
 
         import time
@@ -386,12 +446,22 @@ class Scanner:
                 fpath = futures[future]
                 try:
                     file_info, findings = future.result()
+                    # Correct relative path for zip extraction
+                    if self._temp_dir:
+                        file_info.relative_path = os.path.relpath(fpath, self._temp_dir)
+                        for f in findings:
+                            f.file_path = file_info.relative_path
+                            
                     result.files_scanned.append(file_info)
                     result.findings.extend(findings)
                 except Exception as exc:
-                    result.errors.append(f"Error scanning {os.path.relpath(fpath, self.target_path)}: {exc}")
+                    result.errors.append(f"Error scanning {os.path.relpath(fpath, self._real_target_path)}: {exc}")
 
         result.scan_duration = round(time.time() - start, 3)
+
+        # Cleanup
+        if self._temp_dir and os.path.exists(self._temp_dir):
+            shutil.rmtree(self._temp_dir)
 
         # Sort findings: highest severity first, then by file, then by line
         result.findings.sort(key=lambda f: (-f.severity, f.file_path, f.line_number))

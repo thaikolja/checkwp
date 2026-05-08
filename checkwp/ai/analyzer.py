@@ -8,7 +8,7 @@ from typing import List, Optional
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from checktwp.scanner.engine import Finding, ScanResult
+from checkwp.scanner.engine import Finding, ScanResult
 
 console = Console(stderr=True)
 

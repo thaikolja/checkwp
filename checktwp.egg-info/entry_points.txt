@@ -1,0 +1,2 @@
+[console_scripts]
+checktwp = checktwp.cli:main
