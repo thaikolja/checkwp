@@ -30,6 +30,7 @@
       margin: 0 -1.5rem;
       padding: 0 1.5rem;
       border-left: 4px solid #ef4444;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
     }
 
     /* Transitions */
@@ -132,7 +133,7 @@
           <div>
             <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-4">Severity Breakdown</span>
             <div class="flex flex-wrap items-center gap-3">
-              {% for label, count, color in [('Critical', critical_count, 'red'), ('High', high_count, 'orange'), ('Medium', medium_count, 'amber'), ('Low', low_count, 'blue'), ('Info', info_count, 'slate')] %}
+              {% for label, count, color in [('Critical', critical_count, 'red'), ('High', high_count, 'orange'), ('Medium', medium_count, 'amber'), ('Low', low_count, 'blue')] %}
               <div class="px-4 py-2 rounded-xl border border-{{ color }}-100 bg-{{ color }}-50/50 flex items-center gap-3">
                 <span class="w-2.5 h-2.5 rounded-full bg-{{ color }}-500"></span>
                 <span class="text-sm font-bold text-{{ color }}-700">{{ count }} <span class="hidden sm:inline">{{ label }}</span></span>
@@ -261,7 +262,7 @@
                  <span class="font-bold text-slate-800">{{ f.title }}</span>
               </td>
               <td class="py-5 px-6 text-slate-400 font-mono text-[11px] truncate max-w-xs">{{ f.file_path }}</td>
-              <td class="py-5 px-6 text-slate-500 font-mono text-[11px] text-right">{{ f.line_number }}</td>
+              <td class="py-5 px-6 text-slate-500 font-mono text-[11px] text-right">{{ f.line_number }}:{{ f.match_column }}</td>
               <td class="py-5 px-6 text-right">
                  <svg class="w-4 h-4 rotate-icon text-slate-300 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"/></svg>
               </td>
@@ -314,7 +315,7 @@
                     </div>
 
                     {# Remediation Guide (Split Contexts) #}
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-12">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
                       {# For Site Owners #}
                       <div class="bg-white border border-slate-200 p-8 rounded-2xl flex flex-col justify-between">
                          <div>

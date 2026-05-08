@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 THEMES = {
-    "sleek": "report-sleek.html.twig",
+    "sleek": "theme.twig",
 }
 
 from jinja2 import Environment, FileSystemLoader
@@ -70,6 +70,7 @@ def _build_finding_dict(f: Finding) -> dict:
         "severity_value": f.severity.value,
         "file_path": f.file_path,
         "line_number": f.line_number,
+        "match_column": f.match_column,
         "line_content": f.line_content,
         "context_before": f.context_before,
         "context_after": f.context_after,
@@ -150,7 +151,7 @@ def generate_html_report(
         "ai_enabled": result.ai_enabled,
         "ai_model": result.ai_model,
         "ai_tokens": result.ai_tokens,
-        "report_id": f"CTWP-{report_id}",
+        "report_id": f"CWP-{report_id}",
         "grade": grade,
         "grade_color": result.grade_color(),
         "grade_dash_offset": dash_offset,
@@ -158,7 +159,6 @@ def generate_html_report(
         "high_count": result.high_count,
         "medium_count": result.medium_count,
         "low_count": result.low_count,
-        "info_count": result.info_count,
         "total_findings": result.total_findings,
         "files_scanned": len(result.files_scanned),
         "total_lines": total_lines,

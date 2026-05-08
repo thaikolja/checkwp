@@ -84,9 +84,9 @@ Author:
     scan_group = parser.add_argument_group("Scan Options")
     scan_group.add_argument(
         "-s", "--severity",
-        choices=["critical", "high", "medium", "low", "info"],
-        default="info",
-        help="Minimum severity level to report (default: info).",
+        choices=["critical", "high", "medium", "low"],
+        default="low",
+        help="Minimum severity level to report (default: low).",
     )
     scan_group.add_argument(
         "--deep",
@@ -207,7 +207,7 @@ Author:
 
 def _severity_from_str(s: str) -> Severity:
     return {"critical": Severity.CRITICAL, "high": Severity.HIGH, "medium": Severity.MEDIUM,
-            "low": Severity.LOW, "info": Severity.INFO}[s.lower()]
+            "low": Severity.LOW}[s.lower()]
 
 
 def _print_summary(result: ScanResult) -> None:
@@ -221,8 +221,7 @@ def _print_summary(result: ScanResult) -> None:
         f"[red]{result.critical_count} Critical[/]  •  "
         f"[dark_orange]{result.high_count} High[/]  •  "
         f"[yellow]{result.medium_count} Medium[/]  •  "
-        f"[blue]{result.low_count} Low[/]  •  "
-        f"[dim]{result.info_count} Info[/]",
+        f"[blue]{result.low_count} Low[/]",
         title=f"[bold white]{result.plugin_name}[/]",
         subtitle=f"{len(result.files_scanned)} files • {result.scan_duration}s",
         border_style="bright_blue",
@@ -239,7 +238,7 @@ def _print_summary(result: ScanResult) -> None:
 
         active = [f for f in result.findings if not f.false_positive]
         for i, f in enumerate(active[:20], 1):
-            sev_colors = {5: "red", 4: "dark_orange", 3: "yellow", 2: "blue", 1: "dim"}
+            sev_colors = {5: "red", 4: "dark_orange", 3: "yellow", 2: "blue"}
             sc = sev_colors.get(f.severity.value, "white")
             table.add_row(str(i), f"[{sc}]{f.severity.label}[/]", f.pattern.id, f.pattern.title, f.file_path, str(f.line_number))
 
@@ -252,6 +251,12 @@ def _print_summary(result: ScanResult) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # If no arguments are provided, show help and exit
+    import sys
+    if argv is None and len(sys.argv) == 1:
+        _build_parser().print_help()
+        return 1
+
     parser = _build_parser()
     args = parser.parse_args(argv)
 
@@ -312,6 +317,11 @@ def main(argv: list[str] | None = None) -> int:
     with Progress(SpinnerColumn(), TextColumn("[bold cyan]Scanning files...[/]"), console=console, disable=args.quiet) as progress:
         task = progress.add_task("scan", total=None)
         result = scanner.scan()
+
+    # Fail early if not a valid WordPress plugin
+    if any("Invalid WordPress plugin" in e for e in result.errors):
+        console.print(f"\n[red bold]✖ Validation Error:[/] {result.errors[0]}")
+        return 1
 
     # AI analysis
     if args.ai:

@@ -10,7 +10,6 @@ class Severity(IntEnum):
     HIGH = 4
     MEDIUM = 3
     LOW = 2
-    INFO = 1
 
     @property
     def label(self) -> str:
@@ -18,7 +17,7 @@ class Severity(IntEnum):
 
     @property
     def color(self) -> str:
-        return {5: "#dc2626", 4: "#ea580c", 3: "#d97706", 2: "#2563eb", 1: "#6b7280"}[self.value]
+        return {5: "#dc2626", 4: "#ea580c", 3: "#d97706", 2: "#2563eb"}[self.value]
 
 @dataclass(frozen=True)
 class VulnPattern:
