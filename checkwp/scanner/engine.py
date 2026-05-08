@@ -69,6 +69,8 @@ class ScanResult:
     files_skipped: List[str] = field(default_factory=list)
     scan_duration: float = 0.0
     ai_enabled: bool = False
+    ai_model: str = ""
+    ai_tokens: int = 0
     scan_mode: str = "standard"
     errors: List[str] = field(default_factory=list)
 
@@ -240,8 +242,14 @@ class Scanner:
         self._real_target_path = self.target_path
 
     def _validate_plugin_headers(self, path: str) -> bool:
-        """Check if any PHP file in the directory has a WordPress Plugin header."""
+        """Check if any PHP file or readme.txt has a WordPress Plugin header."""
         for root, _, files in os.walk(path):
+            # Check for readme.txt
+            if "readme.txt" in files:
+                fpath = os.path.join(root, "readme.txt")
+                content = _read_file_safe(fpath)
+                if content and re.search(r"===\s*[\w\s]+\s*===", content):
+                    return True
             for fname in files:
                 if fname.endswith(".php"):
                     fpath = os.path.join(root, fname)

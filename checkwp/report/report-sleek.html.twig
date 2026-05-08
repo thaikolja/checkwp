@@ -152,6 +152,30 @@
       </div>
     </section>
 
+    {% if ai_enabled %}
+    {# AI Active Dashboard #}
+    <div class="mb-12 bg-emerald-500 rounded-2xl p-8 text-white flex flex-col md:flex-row items-center justify-between shadow-xl shadow-emerald-100">
+        <div class="flex items-center gap-6 mb-6 md:mb-0">
+          <div class="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center shrink-0">
+            <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          </div>
+          <div>
+            <h3 class="font-bold text-xl">AI Analysis Active</h3>
+            <p class="text-emerald-100 text-sm opacity-90">Deep verification enabled. False positives have been automatically filtered.</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-8">
+           <div class="text-right">
+              <span class="block text-[10px] font-bold text-emerald-200 uppercase tracking-widest mb-1">Model</span>
+              <span class="text-xs font-bold text-white font-mono">{{ ai_model }}</span>
+           </div>
+           <div class="text-right">
+              <span class="block text-[10px] font-bold text-emerald-200 uppercase tracking-widest mb-1">Context Processed</span>
+              <span class="text-xs font-bold text-white font-mono">~{{ ai_tokens | comma }} tokens</span>
+           </div>
+        </div>
+    </div>
+    {% else %}
     {# AI CTA (New Integration) #}
     <div class="mb-12" id="ai-cta-container">
       <div class="bg-indigo-600 rounded-2xl p-8 text-white flex items-center justify-between cursor-pointer hover:bg-indigo-700 transition-all duration-300 relative z-10" 
@@ -167,7 +191,7 @@
           </div>
         </div>
         <div class="flex items-center gap-4">
-           <code class="hidden md:block bg-indigo-900/40 px-4 py-2 rounded-lg text-[11px] mono text-indigo-200 border border-indigo-400/20">--ai --ai-key sk-...</code>
+           <code class="hidden md:block bg-indigo-900/40 px-4 py-2 rounded-lg text-[11px] font-mono text-indigo-200 border border-indigo-400/20">--ai --ai-key sk-...</code>
            <svg class="w-6 h-6 rotate-icon text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"/></svg>
         </div>
       </div>
@@ -178,20 +202,19 @@
               <div class="grid grid-cols-1 md:grid-cols-2 gap-10">
                  <div class="space-y-4">
                     <h4 class="text-indigo-400 font-bold uppercase text-[10px] tracking-widest">How to implement</h4>
-                    <p class="text-sm leading-relaxed">Provide an OpenAI-compatible API key via the CLI or environment variable. The engine will send vulnerable code snippets to the AI for secondary verification.</p>
-                    <div class="bg-black/40 p-5 rounded-xl border border-slate-700 font-mono text-[11px] space-y-3">
-                       <p><span class="text-slate-500 italic">// Via command line</span><br/><span class="text-indigo-300">checkwp ./plugin </span><span class="text-white font-bold">--ai --ai-key sk-xxxx</span></p>
-                       <p><span class="text-slate-500 italic">// Via environment variable</span><br/><span class="text-emerald-400">export CHECKWP_AI_KEY=sk-xxxx</span><br/><span class="text-indigo-300">checkwp ./plugin </span><span class="text-white font-bold">--ai</span></p>
-                    </div>
+                    <p class="text-[13px] leading-relaxed">Provide an OpenAI-compatible API key via command line or environment variable. <strong>checkwp</strong> will send relevant code blocks to the LLM for deep reasoning and false-positive elimination.</p>
                  </div>
-                 <div class="space-y-4">
-                    <h4 class="text-indigo-400 font-bold uppercase text-[10px] tracking-widest">Analysis Example Output</h4>
-                    <div class="bg-indigo-900/20 p-5 rounded-xl border border-indigo-500/20 space-y-3">
-                       <div class="flex items-center gap-2 mb-2">
-                          <span class="w-2 h-2 rounded-full bg-red-500"></span>
-                          <span class="text-[10px] font-bold text-white uppercase tracking-widest">AI Verdict: High Threat</span>
+                 <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner">
+                    <div class="space-y-4 font-mono text-[11px] leading-relaxed">
+                       <div>
+                         <span class="text-slate-500 italic block mb-1">// Via command line</span>
+                         <code class="block text-indigo-300 font-mono">checkwp ./plugin --ai --ai-key sk-xxxx</code>
                        </div>
-                       <p class="text-xs italic leading-relaxed text-indigo-100 mono">"This finding is a confirmed SQL Injection. While the pattern was caught by static analysis, I verified that the '$id' variable is directly sourced from $_GET without any sanitization before being used in the $wpdb query..."</p>
+                       <div>
+                         <span class="text-slate-500 italic block mb-1">// Via environment variable</span>
+                         <code class="block text-emerald-400 font-mono">export CHECKWP_AI_KEY=sk-xxxx</code>
+                         <code class="block text-indigo-300 font-mono">checkwp ./plugin --ai</code>
+                       </div>
                     </div>
                  </div>
               </div>
@@ -199,6 +222,7 @@
          </div>
       </div>
     </div>
+    {% endif %}
 
     {# ─── FINDINGS (As per screenshot) ─── #}
     <section class="mb-16">
@@ -289,48 +313,59 @@
                       </div>
                     </div>
 
-                    {# Full-Width Remediation #}
-                    <div class="bg-indigo-600 p-10 rounded-2xl text-white shadow-2xl shadow-indigo-200/50">
-                      <div class="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                    {# Remediation Guide (Split Contexts) #}
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-12">
+                      {# For Site Owners #}
+                      <div class="bg-white border border-slate-200 p-8 rounded-2xl flex flex-col justify-between">
                          <div>
-                            <h4 class="text-xs font-bold text-indigo-200 uppercase tracking-widest mb-4">Remediation Guide</h4>
-                            <p class="text-[13px] text-indigo-50 leading-relaxed mb-6">{{ f.layman_fix | inline_code | safe }}</p>
-                            
-                            {% if f.step_by_step_fix %}
-                            <div class="flex flex-wrap items-center gap-3 mt-6">
-                              {% for step in f.step_by_step_fix %}
-                              <div class="flex items-center gap-2 group">
-                                <span class="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 flex items-center justify-center shrink-0 text-[9px] font-bold">
-                                  {{ loop.index }}
-                                </span>
-                                <span class="text-[11px] text-indigo-100 whitespace-nowrap">{{ step | inline_code | safe }}</span>
-                                {% if not loop.last %}
-                                <svg class="w-3 h-3 text-indigo-400/50 mx-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                                {% endif %}
-                              </div>
-                              {% endfor %}
-                            </div>
-                            {% endif %}
+                           <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">For Site Owners (Downloaded Plugins)</h4>
+                           {% if f.layman_fix %}
+                           <p class="text-[13px] text-slate-700 leading-relaxed mb-6">{{ f.layman_fix | inline_code | safe }}</p>
+                           {% else %}
+                           <div class="bg-slate-50 border-l-2 border-red-400 p-4 rounded-r-xl mb-6">
+                             <p class="text-[13px] text-slate-600 leading-relaxed italic">
+                               There is no simple configuration fix for this vulnerability. As a site owner, you cannot safely patch this code directly. We strongly recommend <strong class="text-red-500 font-semibold">deactivating and removing</strong> this plugin immediately. Contact the plugin developer for a security update and do not re-enable it until an official patch is released.
+                             </p>
+                           </div>
+                           {% endif %}
                          </div>
                          
-                         <div class="flex flex-col justify-between">
-                            <div class="bg-indigo-900/30 p-6 rounded-2xl border border-indigo-400/20">
-                               <span class="block text-[10px] font-bold text-indigo-300 uppercase tracking-widest mb-3">Developer Code Implementation</span>
-                               <code class="text-[11px] mono text-white leading-relaxed block">{{ f.recommendation }}</code>
+                         {% if f.ai_analysis %}
+                         <div class="bg-slate-50 p-6 rounded-2xl border border-slate-200 mt-auto">
+                            <div class="flex items-center gap-2 mb-3">
+                               <div class="w-2 h-2 rounded-full {% if f.ai_confirmed %}bg-red-400{% else %}bg-emerald-400{% endif %} animate-pulse"></div>
+                               <span class="text-[10px] font-bold text-slate-600 uppercase tracking-widest">AI Audit Verdict</span>
                             </div>
-                            
-                            {% if f.ai_analysis %}
-                            <div class="mt-8 bg-black/20 p-6 rounded-2xl border border-white/10">
-                               <div class="flex items-center gap-2 mb-3">
-                                  <div class="w-2 h-2 rounded-full {% if f.ai_confirmed %}bg-red-400{% else %}bg-emerald-400{% endif %} animate-pulse"></div>
-                                  <span class="text-[10px] font-bold text-white uppercase tracking-widest">AI Audit Verdict</span>
-                               </div>
-                               <p class="text-xs text-indigo-100 italic leading-relaxed mono">"{{ f.ai_analysis }}"</p>
-                            </div>
-                            {% endif %}
+                            <p class="text-[13px] text-slate-800 leading-relaxed font-sans">{{ f.ai_analysis }}</p>
                          </div>
+                         {% endif %}
+                      </div>
+                      
+                      {# For Developers #}
+                      <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl">
+                         <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">For Developers (How to Fix)</h4>
+                         <p class="text-[13px] text-indigo-100 leading-relaxed mb-6">{{ f.recommendation | inline_code | safe }}</p>
+                         
+                         {% if f.step_by_step_fix %}
+                         <div class="flex flex-wrap items-center gap-3">
+                           {% for step in f.step_by_step_fix %}
+                           <div class="flex items-center gap-2 group">
+                             <span class="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 flex items-center justify-center shrink-0 text-[9px] font-bold">
+                               {{ loop.index }}
+                             </span>
+                             <span class="text-[11px] text-indigo-100 whitespace-nowrap">{{ step | inline_code | safe }}</span>
+                             {% if not loop.last %}
+                             <svg class="w-3 h-3 text-indigo-400/50 mx-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                             {% endif %}
+                           </div>
+                           {% endfor %}
+                         </div>
+                         {% endif %}
                       </div>
                     </div>
+
+                  </div>
+     </div>
 
                   </div>
                 </div>
@@ -414,19 +449,20 @@
         <div>
           <p class="text-xs font-bold text-slate-900">WordPress Plugin Security Checker v1.0.0</p>
           <p class="text-[10px] text-slate-500 uppercase tracking-widest">Security Audit Engine</p>
+          <p class="text-[9px] text-slate-400 mt-1">Created by Kolja Nolte (<a href="mailto:kolja.nolte@gmail.com" class="hover:text-indigo-500 transition-colors">kolja.nolte@gmail.com</a>)</p>
         </div>
       </div>
       
       <div class="flex items-center gap-12 text-[11px] text-slate-500">
-        <div class="flex flex-col">
+        <div class="flex flex-col text-center">
           <span class="uppercase tracking-widest text-[9px] text-slate-400 font-bold mb-1">Files Processed</span>
           <span class="font-bold text-slate-800">{{ files_scanned }} files</span>
         </div>
-        <div class="flex flex-col">
+        <div class="flex flex-col text-center">
           <span class="uppercase tracking-widest text-[9px] text-slate-400 font-bold mb-1">Code Analysis</span>
           <span class="font-bold text-slate-800">{{ total_lines | comma }} lines</span>
         </div>
-        <div class="flex flex-col">
+        <div class="flex flex-col text-center">
           <span class="uppercase tracking-widest text-[9px] text-slate-400 font-bold mb-1">Execution</span>
           <span class="font-bold text-slate-800">{{ scan_duration }}s</span>
         </div>

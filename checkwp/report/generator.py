@@ -148,6 +148,8 @@ def generate_html_report(
         "scan_date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
         "scan_mode": result.scan_mode,
         "ai_enabled": result.ai_enabled,
+        "ai_model": result.ai_model,
+        "ai_tokens": result.ai_tokens,
         "report_id": f"CTWP-{report_id}",
         "grade": grade,
         "grade_color": result.grade_color(),

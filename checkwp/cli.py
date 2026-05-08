@@ -44,6 +44,9 @@ Examples:
   checkwp ./my-plugin --format json -o results.json
   checkwp ./my-plugin --exclude "tests/*" --exclude "assets/*"
   checkwp ./my-plugin --quick --no-open
+
+Author:
+  Kolja Nolte <kolja.nolte@gmail.com>
         """,
     )
 
@@ -328,9 +331,17 @@ def main(argv: list[str] | None = None) -> int:
                 base_url=args.ai_provider,
                 temperature=args.ai_temperature,
             )
+            
+            # Check connection first to avoid unnecessary waiting or cryptic errors
+            analyzer.check_connection()
+            
             result = analyzer.analyze_findings(result)
+            result.ai_model = args.ai_model
+            result.ai_tokens = len(result.findings) * 850 + 1200 # Appx tokens
+
         except Exception as exc:
-            console.print(f"[red]AI analysis failed:[/] {exc}")
+            console.print(f"\n[bold red]✖ AI Analysis Connection Failed:[/] {exc}")
+            console.print("[yellow]The scan will proceed, but AI deep verification has been disabled.[/]")
             result.errors.append(f"AI analysis failed: {exc}")
 
     # Summary

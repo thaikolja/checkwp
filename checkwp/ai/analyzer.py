@@ -130,6 +130,13 @@ class AIAnalyzer:
         self.temperature = temperature
         self.max_tokens = max_tokens
 
+    def check_connection(self) -> None:
+        """Ping the API to verify connection and API key."""
+        try:
+            self.client.models.list()
+        except Exception as e:
+            raise RuntimeError(f"Could not connect to the AI API or invalid API key. Detailed error: {str(e)}")
+
     def _chat(self, user_prompt: str) -> str:
         """Send a chat completion request."""
         response = self.client.chat.completions.create(
