@@ -6,6 +6,7 @@ ENV/
 
 # IDE
 .idea/
+/temp/**
 
 # Python cache
 __pycache__/

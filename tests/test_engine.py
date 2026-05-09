@@ -33,8 +33,8 @@ def test_scanner_severity_filter(vulnerable_plugin):
 
 
 def test_invalid_plugin_fails(temp_plugin_dir):
-    # Remove the plugin header file so the directory is no longer a valid plugin
-    os.remove(os.path.join(temp_plugin_dir, "test-plugin.php"))
+    # Remove the readme so the directory is no longer a valid plugin
+    os.remove(os.path.join(temp_plugin_dir, "readme.txt"))
 
     scanner = Scanner(temp_plugin_dir)
     result = scanner.scan()
@@ -42,7 +42,7 @@ def test_invalid_plugin_fails(temp_plugin_dir):
     # Invalid plugin directories should fail with a clear validation error
     assert result.total_findings == 0
     assert result.errors == [
-        "Invalid WordPress plugin: No 'Plugin Name:' header or valid readme.txt found."
+        "Invalid WordPress plugin: readme.txt must start with '=== <PLUGIN NAME> ===' (blank lines above it are allowed)."
     ]
 
 
@@ -67,6 +67,32 @@ def test_zip_slip_archive_is_rejected(tmp_path):
     assert result.total_findings == 0
     assert result.errors
     assert "unsafe path traversal entries" in result.errors[0]
+
+def test_zip_plugin_requires_readme_header(tmp_path):
+    archive_path = tmp_path / "missing-readme.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("plugin.php", "<?php\n/*\nPlugin Name: Zip Plugin\n*/\n")
+
+    result = Scanner(str(archive_path)).scan()
+
+    assert result.total_findings == 0
+    assert result.errors == [
+        "Invalid WordPress plugin: readme.txt must start with '=== <PLUGIN NAME> ===' (blank lines above it are allowed)."
+    ]
+
+
+def test_zip_plugin_requires_wordpress_style_readme_header(tmp_path):
+    archive_path = tmp_path / "bad-readme.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("plugin.php", "<?php\n/*\nPlugin Name: Zip Plugin\n*/\n")
+        archive.writestr("readme.txt", "This is not a WordPress readme header.\n")
+
+    result = Scanner(str(archive_path)).scan()
+
+    assert result.total_findings == 0
+    assert result.errors == [
+        "Invalid WordPress plugin: readme.txt must start with '=== <PLUGIN NAME> ===' (blank lines above it are allowed)."
+    ]
 
 
 def test_rest_route_permission_callback_signature(temp_plugin_dir):

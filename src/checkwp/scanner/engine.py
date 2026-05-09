@@ -16,8 +16,20 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Import chardet for character encoding detection
-import chardet
+try:
+    # Import chardet for character encoding detection
+    import chardet
+except ImportError:  # pragma: no cover - exercised when chardet is unavailable
+    class _ChardetFallback:
+        @staticmethod
+        def detect(data: bytes) -> dict[str, str | None]:
+            try:
+                data.decode("utf-8")
+                return {"encoding": "utf-8"}
+            except UnicodeDecodeError:
+                return {"encoding": None}
+
+    chardet = _ChardetFallback()
 
 # Import constants and severity enums from patterns module
 from checkwp.scanner.patterns import (
@@ -102,6 +114,8 @@ class ScanResult:
     plugin_path: str
     # The detected or extracted name of the plugin
     plugin_name: str
+    # Optional plugin version discovered from readme.txt
+    plugin_version: str = ""
     # List of all identified findings
     findings: list[Finding] = field(default_factory=list)
     # List of metadata for all successfully scanned files
@@ -418,38 +432,69 @@ class Scanner:
         self._temp_dir: str | None = None
         # Track the actual path being scanned (changes if ZIP is extracted)
         self._real_target_path = self.target_path
+        # Plugin metadata discovered from readme.txt
+        self._plugin_display_name: str = ""
+        self._plugin_version: str = ""
 
     def _validate_plugin_headers(self, path: str) -> bool:
         """
-        Scan for WordPress plugin headers to verify the target is actually a plugin.
-        Checks PHP file headers and readme.txt structures.
+        Scan for a WordPress plugin readme to verify the target is actually a plugin.
+        The readme.txt file must start with the standard WordPress plugin header line.
         """
-        # Recursively walk the directory
+        name, version, error = self._read_plugin_metadata(path)
+        if error is not None:
+            return False
+        self._plugin_display_name = name or ""
+        self._plugin_version = version or ""
+        return True
+
+    def _read_plugin_metadata(self, path: str) -> tuple[str | None, str | None, str | None]:
+        """Extract the plugin name and version from the first valid readme.txt file."""
+        # Search for a readme.txt anywhere within the directory tree
         for root, _, files in os.walk(path):
-            # Look for readme.txt file
-            if "readme.txt" in files:
-                # Build file path
-                fpath = os.path.join(root, "readme.txt")
-                # Read file safely
-                content = _read_file_safe(fpath, max_bytes=PLUGIN_HEADER_READ_BYTES)
-                # Search for WordPress readme headers
-                if content and re.search(r"===\s*[\w\s]+\s*===", content):
-                    # Found a valid readme
-                    return True
-            # Look for PHP file headers
-            for fname in files:
-                # Check extension
-                if fname.endswith(".php"):
-                    # Build file path
-                    fpath = os.path.join(root, fname)
-                    # Read file safely
-                    content = _read_file_safe(fpath, max_bytes=PLUGIN_HEADER_READ_BYTES)
-                    # Search for standard 'Plugin Name:' header
-                    if content and re.search(r"Plugin Name:", content, re.IGNORECASE):
-                        # Found a valid plugin file
-                        return True
-        # No headers found
-        return False
+            if "readme.txt" not in files:
+                continue
+
+            readme_path = os.path.join(root, "readme.txt")
+            content = _read_file_safe(readme_path, max_bytes=PLUGIN_HEADER_READ_BYTES)
+            if not content:
+                return None, None, "Invalid WordPress plugin: readme.txt could not be read."
+
+            lines = content.splitlines()
+            header_name: str | None = None
+            for line in lines:
+                stripped = line.lstrip("\ufeff").strip()
+                if not stripped:
+                    continue
+                match = re.match(r"^===\s*(?P<name>[^=\n]+?)\s*===$", stripped)
+                if not match:
+                    return (
+                        None,
+                        None,
+                        "Invalid WordPress plugin: readme.txt must start with "
+                        "'=== <PLUGIN NAME> ===' (blank lines above it are allowed).",
+                    )
+                header_name = re.sub(r"\s+", " ", match.group("name").strip())
+                break
+
+            if not header_name:
+                return (
+                    None,
+                    None,
+                    "Invalid WordPress plugin: readme.txt must start with "
+                    "'=== <PLUGIN NAME> ===' (blank lines above it are allowed).",
+                )
+
+            plugin_version: str | None = None
+            for line in lines:
+                version_match = re.match(r"(?i)^\s*(?:stable tag|version)\s*:\s*(?P<version>.+?)\s*$", line)
+                if version_match:
+                    plugin_version = version_match.group("version").strip()
+                    break
+
+            return header_name, plugin_version, None
+
+        return None, None, "Invalid WordPress plugin: ZIP archives must include a readme.txt file."
 
     def _cleanup_temp_dir(self) -> None:
         """Delete any temporary extraction directory created during a ZIP scan."""
@@ -464,11 +509,13 @@ class Scanner:
 
     def _plugin_name(self) -> str:
         """Return a friendly plugin name for reports based on the original target."""
-        # Use the ZIP stem for archive scans so the report name is cleaner
+        # Prefer the readme-discovered display name when available
+        if self._plugin_display_name:
+            return self._plugin_display_name
+        # Fall back to the ZIP stem for archive scans so the report name is cleaner
         if self.target_path.lower().endswith(".zip"):
-            # Drop the archive extension
             return Path(self.target_path).stem
-        # Use the directory name for extracted plugins
+        # Use the directory name for unresolved targets
         return os.path.basename(self.target_path)
 
     def _build_error_result(self, message: str) -> ScanResult:
@@ -477,6 +524,7 @@ class Scanner:
         result = ScanResult(
             plugin_path=self.target_path,
             plugin_name=self._plugin_name(),
+            plugin_version=self._plugin_version,
             scan_mode="deep" if self.deep_scan else "standard",
         )
         # Record the user-facing error message
@@ -751,12 +799,9 @@ class Scanner:
         """
         # Reset real target path so repeated scans on the same instance are safe
         self._real_target_path = self.target_path
-        # Initialize result object early so all return paths are consistent
-        result = ScanResult(
-            plugin_path=self.target_path,
-            plugin_name=self._plugin_name(),
-            scan_mode="deep" if self.deep_scan else "standard",
-        )
+        # Reset plugin metadata before validating the target
+        self._plugin_display_name = ""
+        self._plugin_version = ""
 
         # Handle user-supplied .zip paths that are not actually valid ZIP files
         if self.target_path.lower().endswith(".zip") and not zipfile.is_zipfile(self.target_path):
@@ -772,6 +817,15 @@ class Scanner:
                 self._extract_zip_safely(self.target_path, self._temp_dir)
                 # Scan the extracted contents instead of the archive file itself
                 self._real_target_path = self._temp_dir
+                # Ensure ZIP plugins include a valid WordPress readme header before any further processing
+                if not self._validate_plugin_headers(self._real_target_path):
+                    # Clean up any extracted files before returning the validation error
+                    self._cleanup_temp_dir()
+                    # Return a user-friendly ZIP validation error message
+                    return self._build_error_result(
+                        "Invalid WordPress plugin: readme.txt must start with '=== <PLUGIN NAME> ===' "
+                        "(blank lines above it are allowed)."
+                    )
             except (OSError, ValueError, zipfile.BadZipFile) as exc:
                 # Clean up any partial extraction state before returning the error
                 self._cleanup_temp_dir()
@@ -787,8 +841,17 @@ class Scanner:
             self._cleanup_temp_dir()
             # Abort the scan with a clear explanation
             return self._build_error_result(
-                "Invalid WordPress plugin: No 'Plugin Name:' header or valid readme.txt found."
+                "Invalid WordPress plugin: readme.txt must start with '=== <PLUGIN NAME> ===' "
+                "(blank lines above it are allowed)."
             )
+
+        # Initialize result object once the plugin metadata has been validated
+        result = ScanResult(
+            plugin_path=self.target_path,
+            plugin_name=self._plugin_name(),
+            plugin_version=self._plugin_version,
+            scan_mode="deep" if self.deep_scan else "standard",
+        )
 
         # Discover scannable files and files that were skipped
         files, skipped = self._discover_files()

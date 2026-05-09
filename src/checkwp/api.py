@@ -10,12 +10,13 @@ import os
 import shutil
 import tempfile
 import uuid
-
 from pathlib import Path
+
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+
 from checkwp.ai.analyzer import AIAnalyzer
 from checkwp.report.generator import generate_html_report, generate_json_report
 from checkwp.scanner.engine import Scanner

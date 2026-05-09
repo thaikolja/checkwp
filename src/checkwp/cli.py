@@ -8,15 +8,71 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import webbrowser
+from pathlib import Path
 
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
+try:
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+except ImportError:  # pragma: no cover - exercised when rich is unavailable
+    class Console:
+        def __init__(self, stderr: bool = False):
+            self.stderr = stderr
+            self._force_terminal = True
+
+        def print(self, *args, **kwargs):
+            file_obj = sys.stderr if self.stderr else sys.stdout
+            kwargs.setdefault("file", file_obj)
+            print(*args, **kwargs)
+
+
+    class Panel:
+        def __init__(self, renderable, title=None, subtitle=None, border_style=None):
+            self.renderable = renderable
+            self.title = title
+            self.subtitle = subtitle
+            self.border_style = border_style
+
+        def __str__(self):
+            parts = []
+            if self.title:
+                parts.append(str(self.title))
+            parts.append(str(self.renderable))
+            if self.subtitle:
+                parts.append(str(self.subtitle))
+            return "\n".join(parts)
+
+
+    class Table:
+        def __init__(self, *args, **kwargs):
+            self.columns = []
+            self.rows = []
+
+        def add_column(self, name, *args, **kwargs):
+            self.columns.append(name)
+
+        def add_row(self, *values):
+            self.rows.append(tuple(values))
+
+        def __str__(self):
+            if not self.columns:
+                return ""
+            lines = [" | ".join(self.columns)]
+            lines.append("-+-".join("-" * len(col) for col in self.columns))
+            for row in self.rows:
+                lines.append(" | ".join(str(value) for value in row))
+            return "\n".join(lines)
 
 from checkwp import __version__
-from checkwp.report.generator import generate_html_report, generate_json_report
+from checkwp.report.generator import (
+    generate_html_report,
+    generate_json_report,
+    generate_markdown_report,
+    generate_pdf_report,
+)
 from checkwp.scanner.engine import Scanner, ScanResult
 from checkwp.scanner.patterns import Severity
 
@@ -25,11 +81,11 @@ console = Console(stderr=True)
 
 # Define the stylized ASCII banner for the CLI
 BANNER = r"""[bold gradient(#6366f1,#a855f7)]
-     ██████╗██╗  ██╗███████╗ ██████╗██╗  ██╗██╗    ██╗██████╗ 
+     ██████╗██╗  ██╗███████╗ ██████╗██╗  ██╗██╗    ██╗██████╗
     ██╔════╝██║  ██║██╔════╝██╔════╝██║ ██╔╝██║    ██║██╔══██╗
     ██║     ███████║█████╗  ██║     █████╔╝ ██║ █╗ ██║██████╔╝
-    ██║     ██╔══██║██╔══╝  ██║     ██╔═██╗ ██║███╗██║██╔═══╝ 
-    ╚██████╗██║  ██║███████╗╚██████╗██║  ██╗╚███╔███╔╝██║     
+    ██║     ██╔══██║██╔══╝  ██║     ██╔═██╗ ██║███╗██║██╔═══╝
+    ╚██████╗██║  ██║███████╗╚██████╗██║  ██╗╚███╔███╔╝██║
      ╚═════╝╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝[/]
 """
 
@@ -434,6 +490,30 @@ def _print_summary(result: ScanResult) -> None:
     console.print()
 
 
+def _resolve_report_output_path(output: str | None, default_filename: str) -> str:
+    """Resolve the report path, keeping relative filenames under a local temp/ directory."""
+    requested = Path(output or default_filename)
+    if requested.is_absolute():
+        resolved = requested
+    else:
+        temp_dir = (Path.cwd() / "temp").resolve()
+        candidate = temp_dir / requested
+        try:
+            candidate.resolve().relative_to(temp_dir)
+        except ValueError:
+            candidate = temp_dir / requested.name
+        resolved = candidate
+
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    return str(resolved.resolve())
+
+
+def _slugify_report_name(value: str) -> str:
+    """Build a filesystem-friendly report stem from the plugin name."""
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip().lower()).strip("-._")
+    return slug or "checkwp"
+
+
 def main(argv: list[str] | None = None) -> int:
     """
     Main CLI entry point logic.
@@ -567,7 +647,26 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     # Import rich components for the progress bar
-    from rich.progress import Progress, SpinnerColumn, TextColumn
+    try:
+        from rich.progress import Progress, SpinnerColumn, TextColumn
+    except ImportError:  # pragma: no cover - exercised when rich is unavailable
+        class SpinnerColumn:
+            def __init__(self, *args, **kwargs):
+                pass
+
+        class TextColumn:
+            def __init__(self, *args, **kwargs):
+                pass
+
+        class Progress:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
     # Run the scan inside a rich progress context
     with Progress(
         SpinnerColumn(),
@@ -658,34 +757,48 @@ def main(argv: list[str] | None = None) -> int:
 
     # Report generation logic based on user's requested format
     if args.format == "json":
-        # Generate JSON string
-        report_content = generate_json_report(result)
         # Set file extension
         default_ext = ".json"
     else:
-        # Generate HTML string
-        report_content = generate_html_report(result)
         # Set file extension
         default_ext = ".html"
 
     # Handle direct stdout output mode
     if args.stdout:
+        if args.format == "json":
+            report_content = generate_json_report(result)
+        else:
+            report_content = generate_html_report(result)
         # Write content to system stdout
         sys.stdout.write(report_content)
         # Exit successfully
         return 0
 
     # Determine final output file path
-    output_path = args.output or f"{result.plugin_name}-security-report{default_ext}"
-    # Convert to absolute path
-    output_path = os.path.abspath(output_path)
+    safe_stem = _slugify_report_name(result.plugin_name)
+    output_path = _resolve_report_output_path(args.output, f"{safe_stem}-security-report{default_ext}")
 
-    # Write report content to disk
     try:
-        # Open the report file for writing
-        with open(output_path, "w", encoding="utf-8") as f:
-            # Write string to file
-            f.write(report_content)
+        # Generate matching companion report files for HTML output
+        report_assets = None
+        if args.format == "html":
+            html_path = Path(output_path)
+            markdown_path = html_path.with_suffix(".md")
+            pdf_path = html_path.with_suffix(".pdf")
+            report_assets = {
+                "html_name": html_path.name,
+                "markdown_name": markdown_path.name,
+                "pdf_name": pdf_path.name,
+            }
+            generate_html_report(result, output_path=str(html_path), report_assets=report_assets)
+            generate_markdown_report(result, output_path=str(markdown_path))
+            generate_pdf_report(result, output_path=str(pdf_path))
+        else:
+            report_content = generate_json_report(result)
+            # Open the report file for writing
+            with open(output_path, "w", encoding="utf-8") as f:
+                # Write string to file
+                f.write(report_content)
     except OSError as exc:
         # Print a clear write error instead of a stack trace
         console.print(f"[red bold]Error:[/] Could not write report: {exc}")

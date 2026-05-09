@@ -6,8 +6,38 @@ This module uses artificial intelligence to verify scan findings and reduce fals
 # Enable future type annotations
 from __future__ import annotations
 
-from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
+try:
+    from rich.console import Console
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+except ImportError:  # pragma: no cover - exercised when rich is unavailable
+    class Console:
+        def __init__(self, stderr: bool = False):
+            self.stderr = stderr
+
+        def print(self, *args, **kwargs):
+            import sys
+
+            file_obj = sys.stderr if self.stderr else sys.stdout
+            kwargs.setdefault("file", file_obj)
+            print(*args, **kwargs)
+
+    class SpinnerColumn:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class TextColumn:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class Progress:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
 
 from checkwp.scanner.engine import Finding, ScanResult
 

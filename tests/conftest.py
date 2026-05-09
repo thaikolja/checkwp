@@ -12,6 +12,12 @@ def temp_plugin_dir():
     """Create a temporary directory that looks like a WP plugin."""
     tmp = tempfile.mkdtemp()
 
+    # Create the plugin readme with a valid WordPress header
+    readme_file = os.path.join(tmp, "readme.txt")
+    with open(readme_file, "w") as f:
+        f.write("\n\n=== Test Plugin ===\n")
+        f.write("Stable tag: 1.2.3\n")
+
     # Create a main plugin file
     plugin_file = os.path.join(tmp, "test-plugin.php")
     with open(plugin_file, "w") as f:

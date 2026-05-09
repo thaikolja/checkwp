@@ -1,5 +1,6 @@
 """CLI regression tests for user-facing argument handling and report generation."""
 
+
 import pytest
 
 from checkwp.cli import main
@@ -30,3 +31,18 @@ def test_cli_basic_scan(vulnerable_plugin, tmp_path):
     ret = main([vulnerable_plugin, "-o", str(output), "--no-open", "--no-banner"])
     assert ret == 0
     assert output.exists()
+    assert output.with_suffix(".md").exists()
+    assert output.with_suffix(".pdf").exists()
+
+
+def test_cli_default_report_goes_to_temp_folder(vulnerable_plugin, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    ret = main([vulnerable_plugin, "--no-open", "--no-banner"])
+
+    assert ret == 0
+    expected = tmp_path / "temp" / "test-plugin-security-report.html"
+    assert expected.exists()
+    assert expected.with_suffix(".md").exists()
+    assert expected.with_suffix(".pdf").exists()
+

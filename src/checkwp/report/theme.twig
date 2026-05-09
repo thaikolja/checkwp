@@ -57,7 +57,22 @@
     /* Ensure code blocks look premium */
     pre[class*="language-"] { border: 1px solid rgba(255,255,255,0.05) !important; }
     .mono, code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important; }
-    
+    .download-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      border-radius: 0.875rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      transition: all 0.2s ease;
+      border: 1px solid transparent;
+    }
+    .download-btn:hover { transform: translateY(-1px); }
+
     @media print { .no-print { display: none !important; } }
   </style>
 </head>
@@ -77,7 +92,7 @@
         </div>
       </div>
       <div class="text-right text-[13px] text-slate-500 space-y-0.5">
-        <p>{{ scan_date }} UTC</p>
+        <p>{{ scan_date }}</p>
         <p>Mode: <span class="font-bold text-slate-900 capitalize">{{ scan_mode }}</span></p>
       </div>
     </header>
@@ -85,9 +100,28 @@
     {# ─── SUMMARY CARD (As per screenshot) ─── #}
     <section class="summary-card overflow-hidden mb-12">
       <div class="p-10 border-b border-slate-100">
-        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Plugin Under Review</span>
-        <h2 class="text-4xl font-black text-slate-900 mb-2 tracking-tight">{{ plugin_name }}</h2>
-        <p class="text-sm text-slate-400 mono">{{ plugin_path }}</p>
+        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-8">
+          <div>
+            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Plugin Under Review</span>
+            <h2 class="text-4xl font-black text-slate-900 tracking-tight">{{ plugin_name }}</h2>
+            <p class="text-sm font-bold text-slate-500 mt-2">v{{ plugin_version }}</p>
+            <p class="text-sm text-slate-400 mono mt-2">{{ plugin_path }}</p>
+          </div>
+
+          {% if report_assets %}
+          <div class="flex flex-wrap items-center justify-start lg:justify-end gap-3 no-print">
+            <a class="download-btn bg-slate-900 text-white hover:bg-slate-800" href="{{ report_assets.pdf_name }}" download>
+              PDF
+            </a>
+            <a class="download-btn bg-indigo-600 text-white hover:bg-indigo-700" href="{{ report_assets.markdown_name }}" download>
+              Markdown
+            </a>
+            <a class="download-btn bg-white text-slate-700 border-slate-200 hover:bg-slate-50" href="{{ report_assets.html_name }}" download>
+              HTML
+            </a>
+          </div>
+          {% endif %}
+        </div>
       </div>
 
       <div class="p-10 flex flex-col md:flex-row items-center gap-12 lg:gap-20">
@@ -225,157 +259,117 @@
     </div>
     {% endif %}
 
-    {# ─── FINDINGS (As per screenshot) ─── #}
+    {# ─── FINDINGS (Card Layout) ─── #}
     <section class="mb-16">
       <div class="flex items-center justify-between mb-6">
         <h3 class="text-2xl font-black text-slate-900 tracking-tight">Vulnerability Findings</h3>
         <span class="text-slate-400 text-xs font-medium">Sorted by severity (most severe first)</span>
       </div>
 
-      <div class="summary-card overflow-hidden">
-        <table class="w-full text-left text-sm">
-          <thead class="table-header text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-            <tr>
-              <th class="py-4 px-6 w-12 text-center">#</th>
-              <th class="py-4 px-6 w-32">Severity</th>
-              <th class="py-4 px-6">Finding</th>
-              <th class="py-4 px-6">File</th>
-              <th class="py-4 px-6 w-20 text-right">Line</th>
-              <th class="py-4 px-6 w-10 text-right"></th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            {% for f in active_findings %}
-            <tr class="finding-row cursor-pointer hover:bg-slate-50 transition-colors" onclick="toggleDetails('finding-{{ loop.index }}')">
-              <td class="py-5 px-6 text-slate-300 font-mono text-[11px] text-center">{{ loop.index }}</td>
-              <td class="py-5 px-6">
-                <span class="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider 
-                  {% if f.severity_value == 5 %}bg-red-100 text-red-600
-                  {% elif f.severity_value == 4 %}bg-orange-100 text-orange-600
-                  {% elif f.severity_value == 3 %}bg-amber-100 text-amber-600
-                  {% elif f.severity_value == 2 %}bg-blue-100 text-blue-600
-                  {% else %}bg-slate-100 text-slate-500{% endif %}">
-                  {{ f.severity_label }}
-                </span>
-              </td>
-              <td class="py-5 px-6">
-                 <span class="font-bold text-slate-800">{{ f.title }}</span>
-              </td>
-              <td class="py-5 px-6 text-slate-400 font-mono text-[11px] truncate max-w-xs">{{ f.file_path }}</td>
-              <td class="py-5 px-6 text-slate-500 font-mono text-[11px] text-right">{{ f.line_number }}:{{ f.match_column }}</td>
-              <td class="py-5 px-6 text-right">
-                 <svg class="w-4 h-4 rotate-icon text-slate-300 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"/></svg>
-              </td>
-            </tr>
-            {# Expanded Details #}
-            <tr id="finding-{{ loop.index }}" class="bg-slate-50/50">
-              <td colspan="6" class="p-0 border-none">
-                <div class="details-container">
-                  <div class="overflow-hidden">
-                    <div class="px-10 py-12 border-t border-slate-100 shadow-inner space-y-12">
-                    
-                    {# Full-Width Technical Context #}
-                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-12">
-                      <div class="lg:col-span-2 space-y-8">
-                         <div>
-                           <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Technical Description</h4>
-                           <p class="text-sm text-slate-600 leading-relaxed">{{ f.description | inline_code | safe }}</p>
-                         </div>
-                         
-                         <div>
-                           <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Source Code Context</h4>
-                           <div class="rounded-xl overflow-hidden shadow-lg border border-slate-200">
-                             <pre class="line-numbers language-{{ f.language }}"><code class="language-{{ f.language }}">{% for cl in f.context_before %}{{ cl }}
+      <div class="space-y-4">
+        {% for f in active_findings %}
+        <details class="summary-card overflow-hidden group">
+          <summary class="list-none cursor-pointer px-6 py-5 flex flex-wrap items-center gap-4 hover:bg-slate-50 transition-colors">
+            <span class="w-8 text-center text-slate-300 font-mono text-[11px]">{{ loop.index }}</span>
+            <span class="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider
+              {% if f.severity_value == 5 %}bg-red-100 text-red-600
+              {% elif f.severity_value == 4 %}bg-orange-100 text-orange-600
+              {% elif f.severity_value == 3 %}bg-amber-100 text-amber-600
+              {% elif f.severity_value == 2 %}bg-blue-100 text-blue-600
+              {% else %}bg-slate-100 text-slate-500{% endif %}">
+              {{ f.severity_label }}
+            </span>
+            <span class="font-bold text-slate-800 flex-1 min-w-[240px]">{{ f.title }}</span>
+            <span class="text-slate-400 font-mono text-[11px] truncate max-w-xs">{{ f.file_path }}</span>
+            <span class="text-slate-500 font-mono text-[11px]">{{ f.line_number }}:{{ f.match_column }}</span>
+            <svg class="w-4 h-4 rotate-icon text-slate-300 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"/></svg>
+          </summary>
+
+          <div class="px-6 py-8 border-t border-slate-100 space-y-8">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-10">
+              <div class="lg:col-span-2 space-y-6">
+                <div>
+                  <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Technical Description</h4>
+                  <p class="text-sm text-slate-600 leading-relaxed">{{ f.description | inline_code | safe }}</p>
+                </div>
+                <div>
+                  <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Source Code Context</h4>
+                  <div class="rounded-xl overflow-hidden shadow-lg border border-slate-200">
+                    <pre class="line-numbers language-{{ f.language }}"><code class="language-{{ f.language }}">{% for cl in f.context_before %}{{ cl }}
 {% endfor %}<span class="vuln-highlight">{{ f.line_content }}</span>{% for cl in f.context_after %}
 {{ cl }}{% endfor %}</code></pre>
-                           </div>
-                         </div>
-                      </div>
-
-                      <div class="space-y-8">
-                         <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                           <h4 class="text-xs font-bold text-red-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                             Security Impact
-                           </h4>
-                           <p class="text-slate-600 text-[13px] leading-relaxed">{{ f.impact | inline_code | safe }}</p>
-                         </div>
-
-                         <div class="flex flex-col gap-4">
-                           <div class="bg-white px-4 py-3 rounded-xl border border-slate-200 flex items-center justify-between">
-                              <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CWE Reference</span>
-                              <a href="https://cwe.mitre.org/data/definitions/{{ f.cwe_num }}.html" target="_blank" class="text-xs font-bold text-indigo-600 hover:underline mono">{{ f.cwe }}</a>
-                           </div>
-                           <div class="bg-white px-4 py-3 rounded-xl border border-slate-200 flex items-center justify-between">
-                              <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Detection Confidence</span>
-                              <span class="text-xs font-bold text-slate-700 capitalize">{{ f.confidence }}</span>
-                           </div>
-                         </div>
-                      </div>
-                    </div>
-
-                    {# Remediation Guide (Split Contexts) #}
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
-                      {# For Site Owners #}
-                      <div class="bg-white border border-slate-200 p-8 rounded-2xl flex flex-col justify-between">
-                         <div>
-                           <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">For Site Owners (Downloaded Plugins)</h4>
-                           {% if f.layman_fix %}
-                           <p class="text-[13px] text-slate-700 leading-relaxed mb-6">{{ f.layman_fix | inline_code | safe }}</p>
-                           {% else %}
-                           <div class="bg-slate-50 border-l-2 border-red-400 p-4 rounded-r-xl mb-6">
-                             <p class="text-[13px] text-slate-600 leading-relaxed italic">
-                               There is no simple configuration fix for this vulnerability. As a site owner, you cannot safely patch this code directly. We strongly recommend <strong class="text-red-500 font-semibold">deactivating and removing</strong> this plugin immediately. Contact the plugin developer for a security update and do not re-enable it until an official patch is released.
-                             </p>
-                           </div>
-                           {% endif %}
-                         </div>
-                         
-                         {% if f.ai_analysis %}
-                         <div class="bg-slate-50 p-6 rounded-2xl border border-slate-200 mt-auto">
-                            <div class="flex items-center gap-2 mb-3">
-                               <div class="w-2 h-2 rounded-full {% if f.ai_confirmed %}bg-red-400{% else %}bg-emerald-400{% endif %} animate-pulse"></div>
-                               <span class="text-[10px] font-bold text-slate-600 uppercase tracking-widest">AI Audit Verdict</span>
-                            </div>
-                            <p class="text-[13px] text-slate-800 leading-relaxed font-sans">{{ f.ai_analysis }}</p>
-                         </div>
-                         {% endif %}
-                      </div>
-                      
-                      {# For Developers #}
-                      <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl">
-                         <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">For Developers (How to Fix)</h4>
-                         <p class="text-[13px] text-indigo-100 leading-relaxed mb-6">{{ f.recommendation | inline_code | safe }}</p>
-                         
-                         {% if f.step_by_step_fix %}
-                         <div class="flex flex-wrap items-center gap-3">
-                           {% for step in f.step_by_step_fix %}
-                           <div class="flex items-center gap-2 group">
-                             <span class="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 flex items-center justify-center shrink-0 text-[9px] font-bold">
-                               {{ loop.index }}
-                             </span>
-                             <span class="text-[11px] text-indigo-100 whitespace-nowrap">{{ step | inline_code | safe }}</span>
-                             {% if not loop.last %}
-                             <svg class="w-3 h-3 text-indigo-400/50 mx-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                             {% endif %}
-                           </div>
-                           {% endfor %}
-                         </div>
-                         {% endif %}
-                      </div>
-                    </div>
-
-                  </div>
-     </div>
-
                   </div>
                 </div>
+              </div>
+              <div class="space-y-4">
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                  <h4 class="text-xs font-bold text-red-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    Security Impact
+                  </h4>
+                  <p class="text-slate-600 text-[13px] leading-relaxed">{{ f.impact | inline_code | safe }}</p>
                 </div>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+                <div class="bg-white px-4 py-3 rounded-xl border border-slate-200 flex items-center justify-between">
+                  <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CWE Reference</span>
+                  <a href="https://cwe.mitre.org/data/definitions/{{ f.cwe_num }}.html" target="_blank" class="text-xs font-bold text-indigo-600 hover:underline mono">{{ f.cwe }}</a>
+                </div>
+                <div class="bg-white px-4 py-3 rounded-xl border border-slate-200 flex items-center justify-between">
+                  <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Detection Confidence</span>
+                  <span class="text-xs font-bold text-slate-700 capitalize">{{ f.confidence }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div class="bg-white border border-slate-200 p-8 rounded-2xl flex flex-col justify-between">
+                <div>
+                  <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">For Site Owners (Downloaded Plugins)</h4>
+                  {% if f.layman_fix %}
+                  <p class="text-[13px] text-slate-700 leading-relaxed mb-6">{{ f.layman_fix | inline_code | safe }}</p>
+                  {% else %}
+                  <div class="bg-slate-50 border-l-2 border-red-400 p-4 rounded-r-xl mb-6">
+                    <p class="text-[13px] text-slate-600 leading-relaxed italic">
+                      There is no simple configuration fix for this vulnerability. As a site owner, you cannot safely patch this code directly. We strongly recommend <strong class="text-red-500 font-semibold">deactivating and removing</strong> this plugin immediately. Contact the plugin developer for a security update and do not re-enable it until an official patch is released.
+                    </p>
+                  </div>
+                  {% endif %}
+                </div>
+
+                {% if f.ai_analysis %}
+                <div class="bg-slate-50 p-6 rounded-2xl border border-slate-200 mt-auto">
+                  <div class="flex items-center gap-2 mb-3">
+                    <div class="w-2 h-2 rounded-full {% if f.ai_confirmed %}bg-red-400{% else %}bg-emerald-400{% endif %} animate-pulse"></div>
+                    <span class="text-[10px] font-bold text-slate-600 uppercase tracking-widest">AI Audit Verdict</span>
+                  </div>
+                  <p class="text-[13px] text-slate-800 leading-relaxed font-sans">{{ f.ai_analysis }}</p>
+                </div>
+                {% endif %}
+              </div>
+
+              <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl">
+                <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">For Developers (How to Fix)</h4>
+                <p class="text-[13px] text-indigo-100 leading-relaxed mb-6">{{ f.recommendation | inline_code | safe }}</p>
+
+                {% if f.step_by_step_fix %}
+                <div class="flex flex-wrap items-center gap-3">
+                  {% for step in f.step_by_step_fix %}
+                  <div class="flex items-center gap-2 group">
+                    <span class="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 flex items-center justify-center shrink-0 text-[9px] font-bold">
+                      {{ loop.index }}
+                    </span>
+                    <span class="text-[11px] text-indigo-100 whitespace-nowrap">{{ step | inline_code | safe }}</span>
+                    {% if not loop.last %}
+                    <svg class="w-3 h-3 text-indigo-400/50 mx-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    {% endif %}
+                  </div>
+                  {% endfor %}
+                </div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </details>
+        {% endfor %}
       </div>
     </section>
 
