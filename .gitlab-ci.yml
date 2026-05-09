@@ -9,7 +9,6 @@ variables:
 cache:
   paths:
     - .cache/pip
-    - .venv/
 
 before_script:
   - python -m venv .venv
@@ -27,6 +26,7 @@ lint:
   stage: lint
   image: python:3.10
   script:
+    - source .venv/bin/activate
     - ruff check .
     - mypy src/
     - bandit -r src/

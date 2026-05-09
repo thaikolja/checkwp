@@ -6,9 +6,7 @@ ENV/
 
 # IDE
 .idea/
-temp/
-mock-malicious-plugin/
-homebrew/
+.dev/
 
 # Python cache
 __pycache__/
