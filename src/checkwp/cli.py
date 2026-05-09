@@ -824,7 +824,7 @@ def main(argv: list[str] | None = None) -> int:
             # Handle Windows specific file association launch
             elif sys.platform in ['win32', 'cygwin']:
                 # Run startfile
-                os.startfile(output_path)  # nosec
+                os.startfile(output_path)  # type: ignore[attr-defined] # nosec
             # Handle Linux and other platforms
             else:
                 # Use standard webbrowser module
