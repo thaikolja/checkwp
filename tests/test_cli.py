@@ -2,7 +2,7 @@
 
 import pytest
 
-from wpcheck.cli import main
+from checkwp.cli import main
 
 
 def test_cli_help():

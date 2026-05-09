@@ -9,7 +9,7 @@ from __future__ import annotations
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from wpcheck.scanner.engine import Finding, ScanResult
+from checkwp.scanner.engine import Finding, ScanResult
 
 # Initialize local console for status messages
 console = Console(stderr=True)

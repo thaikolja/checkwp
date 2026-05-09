@@ -20,7 +20,7 @@ from pathlib import Path
 import chardet
 
 # Import constants and severity enums from patterns module
-from wpcheck.scanner.patterns import (
+from checkwp.scanner.patterns import (
     ALL_PATTERNS,
     LANGUAGE_EXTENSIONS,
     Severity,
@@ -766,7 +766,7 @@ class Scanner:
         # Extract ZIP archives into a temporary directory before scanning
         if zipfile.is_zipfile(self.target_path):
             # Create a temporary extraction root
-            self._temp_dir = tempfile.mkdtemp(prefix="wpcheck_")
+            self._temp_dir = tempfile.mkdtemp(prefix="checkwp_")
             try:
                 # Extract the archive using path traversal and symlink protections
                 self._extract_zip_safely(self.target_path, self._temp_dir)

@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 from jinja2 import Environment, FileSystemLoader
 
-from wpcheck.scanner.engine import Finding, ScanResult
+from checkwp.scanner.engine import Finding, ScanResult
 
 # Mapping of theme names to their respective Twig template files
 THEMES = {

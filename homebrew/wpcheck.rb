@@ -1,9 +1,9 @@
 require "language/python/virtualenv"
 
 class Wpcheck < Formula
-  desc "WPCheck - detect malware and vulnerabilities"
-  homepage "https://gitlab.com/koljanolte/wpcheck"
-  url "https://github.com/koljanolte/wpcheck/archive/refs/tags/v1.0.0.tar.gz"
+  desc "checkwp - detect malware and vulnerabilities"
+  homepage "https://checkwp.org"
+  url "https://github.com/koljanolte/checkwp/archive/refs/tags/v1.0.0.tar.gz"
   # Replace with the published v1.0.0 source archive checksum during the release step.
   sha256 "REPLACE_WITH_TARBALL_SHA256"
   license "MIT"
@@ -15,6 +15,6 @@ class Wpcheck < Formula
   end
 
   test do
-    system "#{bin}/wpcheck", "--version"
+    system "#{bin}/checkwp", "--version"
   end
 end

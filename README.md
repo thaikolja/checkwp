@@ -1,4 +1,4 @@
-# WPCheck
+# checkwp
 
 A production-ready CLI tool for detecting malware, backdoors, adware, and security vulnerabilities in WordPress plugins. Works fully offline with 50+ built-in detection rules, with optional AI-enhanced analysis via any OpenAI-compatible API.
 
@@ -16,56 +16,56 @@ A production-ready CLI tool for detecting malware, backdoors, adware, and securi
 
 ## Installation
 
-There are multiple ways to install WPCheck.
+There are multiple ways to install checkwp.
 
 ### 1. via pipx (Recommended)
 `pipx` is the recommended way to install Python CLI applications in isolated environments.
 ```bash
-pipx install wpcheck
+pipx install checkwp
 ```
 
 ### 2. via PyPI (pip)
 You can install it directly into your global Python environment or a virtual environment:
 ```bash
-pip install wpcheck
+pip install checkwp
 ```
 
 ### 3. via Homebrew (macOS / Linux)
 If you prefer Homebrew, you can install it using our custom tap:
 ```bash
-brew tap koljanolte/wpcheck
-brew install wpcheck
+brew tap koljanolte/checkwp
+brew install checkwp
 ```
 
 ### 4. via Git (Development)
 If you want to modify the source code or run the latest unreleased version:
 ```bash
-git clone https://gitlab.com/koljanolte/wpcheck.git
-cd wpcheck
+git clone https://gitlab.com/koljanolte/checkwp.git
+cd checkwp
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-*Note: This project is primarily hosted on [GitLab](https://gitlab.com/koljanolte/wpcheck) and mirrored to [GitHub](https://github.com/koljanolte/wpcheck).*
+*Note: This project is primarily hosted on [GitLab](https://gitlab.com/koljanolte/checkwp) and mirrored to [GitHub](https://github.com/koljanolte/checkwp). Visit [checkwp.org](https://checkwp.org) for more information.*
 
 ## Quick Start
 
 ```bash
 # Scan a directory
-wpcheck ./my-plugin
+checkwp ./my-plugin
 
 # Scan a ZIP file
-wpcheck ./my-plugin.zip
+checkwp ./my-plugin.zip
 
 # Deep scan with HTML report
-wpcheck ./my-plugin --deep -o report.html
+checkwp ./my-plugin --deep -o report.html
 ```
 
 ## CLI Reference
 
 ```
-wpcheck <path> [options]
+checkwp <path> [options]
 
 Positional:
   path                    Plugin directory or .zip file to scan
@@ -92,7 +92,7 @@ Filter:
 
 AI (Optional):
   --ai                    Enable AI-enhanced analysis
-  --ai-key KEY            API key (or WPCHECK_AI_KEY env var)
+  --ai-key KEY            API key (or CHECKWP_AI_KEY env var)
   --ai-provider URL       OpenAI-compatible base URL
   --ai-model MODEL        Model name (default: gpt-4o)
   --ai-temperature FLOAT  Model temperature (default: 0.1)

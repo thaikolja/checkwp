@@ -1,5 +1,5 @@
 """
-FastAPI entry point for the wpcheck Web Interface API.
+FastAPI entry point for the checkwp Web Interface API.
 This module provides the backend infrastructure for the Nuxt-based front end.
 """
 
@@ -9,23 +9,43 @@ import json
 import os
 import shutil
 import tempfile
+import uuid
 
 from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from wpcheck.ai.analyzer import AIAnalyzer
-from wpcheck.report.generator import generate_html_report, generate_json_report
-from wpcheck.scanner.engine import Scanner
+from fastapi.staticfiles import StaticFiles
+from checkwp.ai.analyzer import AIAnalyzer
+from checkwp.report.generator import generate_html_report, generate_json_report
+from checkwp.scanner.engine import Scanner
 
 # Initialize the main FastAPI application instance
 app = FastAPI(
     # Set the visible title of the API
-    title="WPCheck API",
+    title="CheckWP API",
     # Set the API description
     description="API for scanning WordPress plugin ZIP files.",
     # Set version
     version="1.0.0",
 )
+
+# Enable CORS for cross-domain requests from the Nuxt front end
+app.add_middleware(
+    CORSMiddleware,
+    # In a production environment, you should restrict this to your Nuxt app's domain
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Configuration for persistent report storage
+REPORTS_DIR = os.environ.get("CHECKWP_REPORTS_DIR", "reports")
+os.makedirs(REPORTS_DIR, exist_ok=True)
+
+# Mount the reports directory to serve static HTML files
+app.mount("/static/reports", StaticFiles(directory=REPORTS_DIR), name="reports")
 
 
 # Define a health check endpoint for monitoring
@@ -33,7 +53,7 @@ app = FastAPI(
 def health_check():
     """Simple endpoint to verify the service is running."""
     # Return a status dictionary
-    return {"status": "ok", "service": "wpcheck-api"}
+    return {"status": "ok", "service": "checkwp-api"}
 
 
 # Define the main scan endpoint for file uploads
@@ -46,7 +66,7 @@ async def scan_plugin(
     # Optional API key for AI provider
     ai_key: str | None = None,
     # Preferred AI model name
-    ai_model: str = "gpt-4o",
+    ai_model: str = "gpt-4.1",
     # Requested output format
     format: str = "json"
 ):
@@ -111,7 +131,7 @@ async def scan_plugin(
         # Perform AI processing if the feature was requested
         if ai_enabled:
             # Determine API key priority
-            api_key = ai_key or os.environ.get("WPCHECK_AI_KEY")
+            api_key = ai_key or os.environ.get("CHECKWP_AI_KEY")
             # Ensure we have a key to work with
             if not api_key:
                 # Return configuration error
@@ -141,8 +161,24 @@ async def scan_plugin(
         if format == "html":
             # Generate the HTML string using the sleek theme
             html_content = generate_html_report(result)
-            # Return wrapped in a JSON envelope
-            return JSONResponse(content={"html": html_content})
+
+            # Generate a unique ID for persistent storage
+            report_id = str(uuid.uuid4())
+            report_filename = f"{report_id}.html"
+            report_path = os.path.join(REPORTS_DIR, report_filename)
+
+            # Save the report to the persistent directory
+            with open(report_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+
+            # Return wrapped in a JSON envelope with the report ID and static URL
+            return JSONResponse(
+                content={
+                    "html":       html_content,
+                    "report_id":  report_id,
+                    "report_url": f"/static/reports/{report_filename}"
+                }
+            )
 
         # Default to JSON format
         json_report = generate_json_report(result)

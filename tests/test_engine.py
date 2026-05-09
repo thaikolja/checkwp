@@ -3,8 +3,8 @@
 import os
 import zipfile
 
-from wpcheck.scanner.engine import Finding, Scanner, ScanResult, Severity
-from wpcheck.scanner.patterns import VulnPattern
+from checkwp.scanner.engine import Finding, Scanner, ScanResult, Severity
+from checkwp.scanner.patterns import VulnPattern
 
 
 def test_scanner_finds_vulnerabilities(vulnerable_plugin):
@@ -74,7 +74,7 @@ def test_rest_route_permission_callback_signature(temp_plugin_dir):
     with open(rest_route, "w", encoding="utf-8") as file_obj:
         file_obj.write(
             "<?php\n"
-            "register_rest_route('wpcheck/v1', '/sync', ['permission_callback' => '__return_true']);\n"
+            "register_rest_route('checkwp/v1', '/sync', ['permission_callback' => '__return_true']);\n"
         )
 
     result = Scanner(temp_plugin_dir).scan()

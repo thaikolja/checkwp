@@ -14,13 +14,14 @@ cache:
 before_script:
   - python -m venv .venv
   - source .venv/bin/activate
+  - pip install --upgrade pip
   - pip install -e ".[dev]"
 
 test:
   stage: test
   image: python:3.10
   script:
-    - pytest --cov=wpcheck tests/
+    - pytest --cov=checkwp tests/
 
 lint:
   stage: lint
