@@ -61,7 +61,7 @@ except ImportError:  # pragma: no cover - exercised when rich is unavailable
             if not self.columns:
                 return ""
             lines = [" | ".join(self.columns)]
-            lines.append("-+-".join("-" * len(col) for col in self.columns))
+            lines.append("-+-".join("-" * len(column) for column in self.columns))
             for row in self.rows:
                 lines.append(" | ".join(str(value) for value in row))
             return "\n".join(lines)
@@ -73,11 +73,13 @@ from checkwp.report.generator import (
     generate_markdown_report,
     generate_pdf_report,
 )
-from checkwp.scanner.engine import Scanner, ScanResult
+from checkwp.scanner.engine import DEFAULT_EXCLUDE, DEFAULT_EXTENSIONS, Scanner, ScanResult
 from checkwp.scanner.patterns import Severity
 
 # Initialize a global console object for stderr output
 console = Console(stderr=True)
+
+DEFAULT_AI_ENDPOINT = "https://api.openai.com/v1"
 
 # Define the stylized ASCII banner for the CLI
 BANNER = r"""[bold gradient(#6366f1,#a855f7)]
@@ -88,6 +90,37 @@ BANNER = r"""[bold gradient(#6366f1,#a855f7)]
     ╚██████╗██║  ██║███████╗╚██████╗██║  ██╗╚███╔███╔╝██║
      ╚═════╝╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝[/]
 """
+
+try:
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+except ImportError:  # pragma: no cover - exercised when rich is unavailable
+    class SpinnerColumn:
+        def __init__(self, *args, **kwargs):
+            pass
+
+
+    class TextColumn:
+        def __init__(self, *args, **kwargs):
+            pass
+
+
+    class Progress:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+
+def resolve_ai_endpoint(endpoint: str | None) -> str:
+    """Resolve an OpenAI-compatible base URL, defaulting to OpenAI when omitted."""
+    value = (endpoint or DEFAULT_AI_ENDPOINT).strip()
+    if re.match(r"^https?://", value, flags=re.IGNORECASE):
+        return value.rstrip("/")
+    raise ValueError("--ai-endpoint must be a full OpenAI-compatible https:// base URL.")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -104,19 +137,14 @@ def _build_parser() -> argparse.ArgumentParser:
         # Use raw formatter to preserve formatting in epilog
         formatter_class=argparse.RawDescriptionHelpFormatter,
         # Add usage examples and author info to the bottom of the help
-        epilog="""
-Examples:
-  checkwp ./my-plugin
-  checkwp ./my-plugin -o report.html --deep
-  checkwp ./my-plugin --severity high --threads 8
-  checkwp ./my-plugin --ai --ai-key sk-... --ai-model gpt-4o
-  checkwp ./my-plugin --format json -o results.json
-  checkwp ./my-plugin --exclude "tests/*" --exclude "assets/*"
-  checkwp ./my-plugin --quick --no-open
-
-Author:
-  Kolja Nolte <kolja.nolte@gmail.com>
-        """,
+        epilog=(
+            "Examples:\n"
+            "  checkwp ./my-plugin\n"
+            "  checkwp ./my-plugin --deep -o report.html\n"
+            "  checkwp ./my-plugin --format json -o report.json\n"
+            "  checkwp ./my-plugin --ai-key sk-... --ai-model gpt-4o\n"
+            "  checkwp ./my-plugin --ai-key sk-... --ai-endpoint https://api.deepseek.com/v1 --ai-model deepseek-chat\n"
+        ),
     )
 
     # ── Positional Arguments ──
@@ -130,7 +158,7 @@ Author:
 
     # ── Output Configuration Group ──
     # Create a group for output-related flags
-    output_group = parser.add_argument_group("Output Options")
+    output_group = parser.add_argument_group("Output options")
     # Add option for custom output file path
     output_group.add_argument(
         # Short and long flags
@@ -172,7 +200,7 @@ Author:
 
     # ── Scan Engine Configuration Group ──
     # Create a group for scanner behavior flags
-    scan_group = parser.add_argument_group("Scan Options")
+    scan_group = parser.add_argument_group("Scan options")
     # Add option for minimum severity filtering
     scan_group.add_argument(
         # Short and long flags
@@ -209,7 +237,7 @@ Author:
         # Expect integer input
         type=int,
         # Default to 4 threads
-        default=4,
+        default=max(4, (os.cpu_count() or 4)),
         # Help description
         help="Number of parallel scanning threads (default: 4).",
     )
@@ -238,7 +266,7 @@ Author:
 
     # ── Directory and File Filter Group ──
     # Create a group for exclusion and inclusion logic
-    filter_group = parser.add_argument_group("Filter Options")
+    filter_group = parser.add_argument_group("Filter options")
     # Add option to exclude specific directories
     filter_group.add_argument(
         # Long flag
@@ -282,45 +310,38 @@ Author:
 
     # ── AI Integration Group ──
     # Create a group for optional AI analysis settings
-    ai_group = parser.add_argument_group("AI-Enhanced Analysis (Optional)")
-    # Add flag to enable AI features
-    ai_group.add_argument(
-        # Long flag
-        "--ai",
-        # Store as boolean true
-        action="store_true",
-        # Help description
-        help="Enable AI-enhanced vulnerability analysis.",
-    )
+    api_group = parser.add_argument_group("Optional AI verification")
     # Add option for AI API key
-    ai_group.add_argument(
+    api_group.add_argument(
         # Long flag
         "--ai-key",
         # Default to None
         default=None,
         # Help description
-        help="API key for the AI provider. Can also use CHECKWP_AI_KEY env var.",
+        help="Enable AI verification using this API key.",
     )
     # Add option for AI API base URL
-    ai_group.add_argument(
-        # Long flag
+    api_group.add_argument(
+        # Long flags (canonical + compatibility alias)
+        "--ai-endpoint",
         "--ai-provider",
+        dest="ai_endpoint",
         # Default to OpenAI
-        default="https://api.openai.com/v1",
+        default=None,
         # Help description
-        help="Base URL for OpenAI-compatible API (default: https://api.openai.com/v1).",
+        help="OpenAI-compatible base URL. Optional; defaults to OpenAI.",
     )
     # Add option for the AI model identifier
-    ai_group.add_argument(
+    api_group.add_argument(
         # Long flag
         "--ai-model",
         # Default to gpt-4o
         default="gpt-4o",
         # Help description
-        help="Model name to use for AI analysis (default: gpt-4o).",
+        help="Model name to use for AI verification (default: gpt-4o).",
     )
     # Add option for AI creativity parameter
-    ai_group.add_argument(
+    api_group.add_argument(
         # Long flag
         "--ai-temperature",
         # Expect float input
@@ -333,7 +354,7 @@ Author:
 
     # ── Display and UI Group ──
     # Create a group for terminal output styling
-    display_group = parser.add_argument_group("Display Options")
+    display_group = parser.add_argument_group("Display options")
     # Add option for verbosity level
     display_group.add_argument(
         # Short and long flags
@@ -388,11 +409,11 @@ Author:
     return parser
 
 
-def _severity_from_str(s: str) -> Severity:
+def _severity_from_str(value: str) -> Severity:
     """Map a case-insensitive string label to a Severity enum value."""
     # Return mapped enum based on lowercase input string
     return {"critical": Severity.CRITICAL, "high": Severity.HIGH, "medium": Severity.MEDIUM,
-            "low":      Severity.LOW}[s.lower()]
+            "low": Severity.LOW}[value.lower()]
 
 
 def _print_nonfatal_errors(result: ScanResult) -> None:
@@ -452,9 +473,9 @@ def _print_summary(result: ScanResult) -> None:
         # Add severity column
         table.add_column("Severity", width=10)
         # Add rule ID column
-        table.add_column("Rule", width=18)
+        table.add_column("Rule", width=22)
         # Add title column
-        table.add_column("Title", min_width=30)
+        table.add_column("Title", min_width=28)
         # Add file path column
         table.add_column("File", style="cyan")
         # Add line number column
@@ -514,6 +535,25 @@ def _slugify_report_name(value: str) -> str:
     return slug or "checkwp"
 
 
+def _scan_extensions(args: argparse.Namespace) -> set[str] | None:
+    """Determine the set of file extensions to include in the scan based on arguments."""
+    # Handle PHP only mode
+    if args.php_only:
+        # Set extension set
+        return {".php", ".inc", ".module"}
+    # Handle JS only mode
+    if args.js_only:
+        # Set extension set
+        return {".js", ".jsx", ".ts", ".tsx", ".mjs"}
+    # Handle user-defined additional extensions
+    if args.include_ext:
+        # Normalize and merge with default extensions
+        normalized = {ext if ext.startswith(".") else f".{ext}" for ext in args.include_ext}
+        return DEFAULT_EXTENSIONS | {ext.lower() for ext in normalized}
+    # No specific inclusions, return None
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     """
     Main CLI entry point logic.
@@ -558,6 +598,12 @@ def main(argv: list[str] | None = None) -> int:
         console.print("[red bold]Error:[/] --context-lines cannot be negative.")
         # Exit with failure
         return 1
+    # Validate API temperature range
+    if not 0 <= args.ai_temperature <= 2:
+        # Print error message
+        console.print("[red bold]Error:[/] --ai-temperature must be between 0 and 2.")
+        # Exit with failure
+        return 1
 
     # Handle color disabling flag
     if args.no_color:
@@ -586,25 +632,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     # Logic to build the set of extensions to include in the scan
-    include_ext = None
-    # Handle PHP only mode
-    if args.php_only:
-        # Set extension set
-        include_ext = {".php", ".inc", ".module"}
-    # Handle JS only mode
-    elif args.js_only:
-        # Set extension set
-        include_ext = {".js", ".jsx", ".ts", ".tsx", ".mjs"}
-    # Handle user-defined additional extensions
-    elif args.include_ext:
-        # Import defaults
-        from checkwp.scanner.engine import DEFAULT_EXTENSIONS
-        # Merge defaults with user provided extensions
-        include_ext = DEFAULT_EXTENSIONS | set(args.include_ext)
+    include_extensions = _scan_extensions(args)
 
     # Logic to build the set of directories to exclude
-    from checkwp.scanner.engine import DEFAULT_EXCLUDE
-    # Merge default excludes with user provided exclusions
     exclude_dirs = DEFAULT_EXCLUDE | set(args.exclude)
 
     # Convert the severity string argument into the internal Enum type
@@ -637,7 +667,7 @@ def main(argv: list[str] | None = None) -> int:
         # Set directory exclusions
         exclude_dirs=exclude_dirs,
         # Set extension inclusions
-        include_extensions=include_ext,
+        include_extensions=include_extensions,
         # Set deep scan toggle
         deep_scan=args.deep,
         # Set thread count
@@ -646,27 +676,6 @@ def main(argv: list[str] | None = None) -> int:
         context_lines=args.context_lines,
     )
 
-    # Import rich components for the progress bar
-    try:
-        from rich.progress import Progress, SpinnerColumn, TextColumn
-    except ImportError:  # pragma: no cover - exercised when rich is unavailable
-        class SpinnerColumn:
-            def __init__(self, *args, **kwargs):
-                pass
-
-        class TextColumn:
-            def __init__(self, *args, **kwargs):
-                pass
-
-        class Progress:
-            def __init__(self, *args, **kwargs):
-                pass
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, tb):
-                return False
     # Run the scan inside a rich progress context
     with Progress(
         SpinnerColumn(),
@@ -694,25 +703,24 @@ def main(argv: list[str] | None = None) -> int:
     ]
     if fatal_errors:
         # Print the first fatal error
-        console.print(f"\n[red bold]✖ Scan Failed:[/] {fatal_errors[0]}")
+        console.print(f"\n[red bold]✖ Scan failed:[/] {fatal_errors[0]}")
         # Exit with failure
         return 1
 
     # Logic for optional AI analysis if requested by the user
-    if args.ai:
-        # Fetch API key from arguments or environment variable
-        api_key = args.ai_key or os.environ.get("CHECKWP_AI_KEY")
-        # Ensure a key is available
-        if not api_key:
-            # Print error and exit
-            console.print("[red bold]Error:[/] AI mode requires --ai-key or CHECKWP_AI_KEY environment variable.")
-            # Return failure
+    if args.ai_key:
+        try:
+            # Resolve the base URL for the AI provider
+            base_url = resolve_ai_endpoint(args.ai_endpoint)
+        except ValueError as exc:
+            # Print provider resolution errors
+            console.print(f"[red bold]Error:[/] {exc}")
             return 1
 
         # Show AI initialization message
         if not args.quiet:
             # Display model and provider info
-            console.print(f"\n[bold indigo]AI Analysis:[/] {args.ai_model} via {args.ai_provider}")
+            console.print(f"\n[bold indigo]AI verification:[/] {args.ai_model} via {base_url}")
 
         try:
             # Late import of the AI analyzer to save startup time if not used
@@ -720,11 +728,11 @@ def main(argv: list[str] | None = None) -> int:
             # Initialize AI analyzer
             analyzer = AIAnalyzer(
                 # Set API key
-                api_key=api_key,
+                api_key=args.ai_key,
                 # Set model name
                 model=args.ai_model,
                 # Set base URL
-                base_url=args.ai_provider,
+                base_url=base_url,
                 # Set temperature
                 temperature=args.ai_temperature,
             )
@@ -741,12 +749,10 @@ def main(argv: list[str] | None = None) -> int:
 
         except Exception as exc:
             # Handle AI-specific errors gracefully
-            if not args.quiet:
-                console.print(f"\n[bold red]✖ AI Analysis Connection Failed:[/] {exc}")
-                # Inform user that scan proceeds without AI
-                console.print("[yellow]The scan will proceed, but AI deep verification has been disabled.[/]")
-            # Log error in result object
             result.errors.append(f"AI analysis failed: {exc}")
+            if not args.quiet:
+                console.print(f"\n[bold red]✖ AI verification failed:[/] {exc}")
+                console.print("[yellow]Continuing with the offline scan result only.[/]")
 
     # Display the final summary dashboard if not in quiet mode
     if not args.quiet:
@@ -765,10 +771,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Handle direct stdout output mode
     if args.stdout:
-        if args.format == "json":
-            report_content = generate_json_report(result)
-        else:
-            report_content = generate_html_report(result)
+        report_content = generate_json_report(result) if args.format == "json" else generate_html_report(result)
         # Write content to system stdout
         sys.stdout.write(report_content)
         # Exit successfully

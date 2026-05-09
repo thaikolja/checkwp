@@ -4,7 +4,7 @@ This package provides tools to audit WordPress plugins for malware, backdoors, a
 """
 
 # Define the current version of the checkwp tool
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 # Define the formal application name
 __app_name__ = "checkwp"
@@ -14,3 +14,6 @@ __author__ = "Kolja Nolte"
 
 # Define official contact email
 __email__ = "kolja.nolte@gmail.com"
+
+# Define the package license identifier
+__license__ = "MIT"

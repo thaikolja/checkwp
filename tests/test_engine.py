@@ -6,44 +6,45 @@ import zipfile
 from checkwp.scanner.engine import Finding, Scanner, ScanResult, Severity
 from checkwp.scanner.patterns import VulnPattern
 
+INVALID_PLUGIN_ERROR = "Invalid WordPress plugin: could not find a valid readme.txt header or PHP Plugin Name header."
+
 
 def test_scanner_finds_vulnerabilities(vulnerable_plugin):
-    scanner = Scanner(vulnerable_plugin)
-    result = scanner.scan()
+    result = Scanner(vulnerable_plugin).scan()
 
-    # We expect 3 vulnerabilities based on vulnerable_plugin fixture
     assert result.total_findings >= 3
-
-    # Check for specific types
-    ids = [f.pattern.id for f in result.findings]
+    ids = [finding.pattern.id for finding in result.findings]
     assert any("RCE" in rule_id for rule_id in ids)
     assert any("SQLI" in rule_id for rule_id in ids)
     assert any("XSS" in rule_id for rule_id in ids)
 
 
 def test_scanner_severity_filter(vulnerable_plugin):
-    # Only scan for CRITICAL
-    scanner = Scanner(vulnerable_plugin, severity_threshold=Severity.CRITICAL)
-    result = scanner.scan()
+    result = Scanner(vulnerable_plugin, severity_threshold=Severity.CRITICAL).scan()
 
-    # eval($_GET['cmd']) should be critical
     assert result.total_findings > 0
     for finding in result.findings:
         assert finding.severity == Severity.CRITICAL
 
 
 def test_invalid_plugin_fails(temp_plugin_dir):
-    # Remove the readme so the directory is no longer a valid plugin
+    os.remove(os.path.join(temp_plugin_dir, "readme.txt"))
+    with open(os.path.join(temp_plugin_dir, "test-plugin.php"), "w", encoding="utf-8") as file_obj:
+        file_obj.write("<?php\n// no plugin header\n")
+
+    result = Scanner(temp_plugin_dir).scan()
+
+    assert result.total_findings == 0
+    assert result.errors == [INVALID_PLUGIN_ERROR]
+
+
+def test_plugin_header_without_readme_is_accepted(temp_plugin_dir):
     os.remove(os.path.join(temp_plugin_dir, "readme.txt"))
 
-    scanner = Scanner(temp_plugin_dir)
-    result = scanner.scan()
+    result = Scanner(temp_plugin_dir).scan()
 
-    # Invalid plugin directories should fail with a clear validation error
-    assert result.total_findings == 0
-    assert result.errors == [
-        "Invalid WordPress plugin: readme.txt must start with '=== <PLUGIN NAME> ===' (blank lines above it are allowed)."
-    ]
+    assert result.errors == []
+    assert result.plugin_name == "Test Plugin"
 
 
 def test_invalid_zip_reports_error(tmp_path):
@@ -68,20 +69,20 @@ def test_zip_slip_archive_is_rejected(tmp_path):
     assert result.errors
     assert "unsafe path traversal entries" in result.errors[0]
 
-def test_zip_plugin_requires_readme_header(tmp_path):
-    archive_path = tmp_path / "missing-readme.zip"
+
+def test_zip_plugin_header_fallback_is_supported(tmp_path):
+    archive_path = tmp_path / "plugin-header-only.zip"
     with zipfile.ZipFile(archive_path, "w") as archive:
-        archive.writestr("plugin.php", "<?php\n/*\nPlugin Name: Zip Plugin\n*/\n")
+        archive.writestr("plugin.php", "<?php\n/*\nPlugin Name: Zip Plugin\nVersion: 2.4.0\n*/\n")
 
     result = Scanner(str(archive_path)).scan()
 
-    assert result.total_findings == 0
-    assert result.errors == [
-        "Invalid WordPress plugin: readme.txt must start with '=== <PLUGIN NAME> ===' (blank lines above it are allowed)."
-    ]
+    assert result.errors == []
+    assert result.plugin_name == "Zip Plugin"
+    assert result.plugin_version == "2.4.0"
 
 
-def test_zip_plugin_requires_wordpress_style_readme_header(tmp_path):
+def test_zip_plugin_with_invalid_readme_but_valid_header_is_supported(tmp_path):
     archive_path = tmp_path / "bad-readme.zip"
     with zipfile.ZipFile(archive_path, "w") as archive:
         archive.writestr("plugin.php", "<?php\n/*\nPlugin Name: Zip Plugin\n*/\n")
@@ -89,10 +90,37 @@ def test_zip_plugin_requires_wordpress_style_readme_header(tmp_path):
 
     result = Scanner(str(archive_path)).scan()
 
-    assert result.total_findings == 0
-    assert result.errors == [
-        "Invalid WordPress plugin: readme.txt must start with '=== <PLUGIN NAME> ===' (blank lines above it are allowed)."
-    ]
+    assert result.errors == []
+    assert result.plugin_name == "Zip Plugin"
+
+
+def test_multiline_malware_signature_is_detected(temp_plugin_dir):
+    with open(os.path.join(temp_plugin_dir, "multiline.php"), "w", encoding="utf-8") as file_obj:
+        file_obj.write(
+            "<?php\n"
+            "eval(\n"
+            "    base64_decode('PD9waHAgZWNobyAnaGknOw==')\n"
+            ");\n"
+        )
+
+    result = Scanner(temp_plugin_dir).scan()
+
+    assert any(finding.pattern.id == "PHP-RCE-002" for finding in result.findings)
+
+
+def test_offline_heuristic_detects_obfuscated_backdoor(temp_plugin_dir):
+    long_blob = "QUFB" * 80
+    with open(os.path.join(temp_plugin_dir, "heuristic.php"), "w", encoding="utf-8") as file_obj:
+        file_obj.write(
+            "<?php\n"
+            "$runner = 'assert';\n"
+            f"@$runner(base64_decode('{long_blob}'));\n"
+            "$x = chr(101).chr(118).chr(97).chr(108).chr(40).chr(41).chr(59);\n"
+        )
+
+    result = Scanner(temp_plugin_dir, deep_scan=True).scan()
+
+    assert any(finding.pattern.id == "PHP-MALWARE-HEUR-001" for finding in result.findings)
 
 
 def test_rest_route_permission_callback_signature(temp_plugin_dir):
@@ -150,23 +178,18 @@ def test_grade_ignores_false_positives():
 
 
 def test_discover_files_skips_binary_empty_and_large_files(temp_plugin_dir):
-    binary_file = os.path.join(temp_plugin_dir, "image.png")
-    with open(binary_file, "wb") as file_obj:
+    with open(os.path.join(temp_plugin_dir, "image.png"), "wb") as file_obj:
         file_obj.write(b"\x89PNG\r\n\x1a\n")
 
-    empty_php = os.path.join(temp_plugin_dir, "empty.php")
-    open(empty_php, "w", encoding="utf-8").close()
+    open(os.path.join(temp_plugin_dir, "empty.php"), "w", encoding="utf-8").close()
 
-    large_php = os.path.join(temp_plugin_dir, "large.php")
-    with open(large_php, "w", encoding="utf-8") as file_obj:
+    with open(os.path.join(temp_plugin_dir, "large.php"), "w", encoding="utf-8") as file_obj:
         file_obj.write("<?php\n" + "A" * 4096)
 
-    scanner = Scanner(temp_plugin_dir, max_file_size_kb=1)
-    result = scanner.scan()
+    result = Scanner(temp_plugin_dir, max_file_size_kb=1).scan()
 
     assert result.errors == []
     assert "image.png" in result.files_skipped
     assert "empty.php" in result.files_skipped
     assert "large.php" in result.files_skipped
-
 

@@ -226,7 +226,7 @@
           </div>
         </div>
         <div class="flex items-center gap-4">
-           <code class="hidden md:block bg-indigo-900/40 px-4 py-2 rounded-lg text-[11px] font-mono text-indigo-200 border border-indigo-400/20">--ai --ai-key sk-...</code>
+          <code class="hidden md:block bg-indigo-900/40 px-4 py-2 rounded-lg text-[11px] font-mono text-indigo-200 border border-indigo-400/20">--ai-key sk-...</code>
            <svg class="w-6 h-6 rotate-icon text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"/></svg>
         </div>
       </div>
@@ -237,18 +237,18 @@
               <div class="grid grid-cols-1 md:grid-cols-2 gap-10">
                  <div class="space-y-4">
                     <h4 class="text-indigo-400 font-bold uppercase text-[10px] tracking-widest">How to implement</h4>
-                    <p class="text-[13px] leading-relaxed">Provide an OpenAI-compatible API key via command line or environment variable. <strong>CheckWP</strong> will send relevant code blocks to the LLM for deep reasoning and false-positive elimination.</p>
+                   <p class="text-[13px] leading-relaxed">Provide an OpenAI-compatible AI key via command line or environment variable. <strong>CheckWP</strong> will send relevant code blocks to the LLM for deep reasoning and false-positive elimination.</p>
                  </div>
                  <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner">
                     <div class="space-y-4 font-mono text-[11px] leading-relaxed">
                        <div>
                          <span class="text-slate-500 italic block mb-1">// Via command line</span>
-                         <code class="block text-indigo-300 font-mono">checkwp ./plugin --ai --ai-key sk-xxxx</code>
+                         <code class="block text-indigo-300 font-mono">checkwp ./plugin --ai-key sk-xxxx --ai-endpoint https://api.deepseek.com/v1 --ai-model deepseek-chat</code>
                        </div>
                        <div>
                          <span class="text-slate-500 italic block mb-1">// Via environment variable</span>
                          <code class="block text-emerald-400 font-mono">export CHECKWP_AI_KEY=sk-xxxx</code>
-                         <code class="block text-indigo-300 font-mono">checkwp ./plugin --ai</code>
+                         <code class="block text-indigo-300 font-mono">checkwp ./plugin --ai-key sk-xxxx --ai-model deepseek-chat</code>
                        </div>
                     </div>
                  </div>

@@ -489,7 +489,7 @@ PHP_PATTERNS: list[VulnPattern] = [
         # High
         severity=Severity.HIGH,
         # Pattern
-        pattern=r'wp_ajax_(?:nopriv_)?\w+.*(?:function\s+\w+|[\'"]\s*,\s*function)',
+        pattern=r'wp_ajax_(?:nopriv_)?\w+[\s\S]{0,200}?(?:function\s+\w+|[\'\"]\s*,\s*function)',
         # Description
         description="AJAX handler registered without visible nonce verification.",
         # Impact
@@ -942,194 +942,200 @@ PHP_PATTERNS: list[VulnPattern] = [
         # High confidence
         confidence="high",
     ),
+    VulnPattern(
+        id="PHP-MALWARE-011", title="Decoded payload executed through variable function",
+        severity=Severity.CRITICAL,
+        pattern=r'\$\w+\s*\(\s*(?:base64_decode|gzinflate|gzuncompress|str_rot13|rawurldecode|hex2bin)\s*\(',
+        description="A variable function or callback executes a decoded payload. This is a common backdoor evasion technique.",
+        impact="The plugin may be hiding malicious code behind indirection so simpler scanners and manual review miss the execution path.",
+        cwe="CWE-506",
+        recommendation="Treat as highly suspicious, decode the payload, and remove the backdoor.",
+        confidence="high",
+    ),
+    VulnPattern(
+        id="PHP-MALWARE-012", title="Error-suppressed dangerous execution",
+        severity=Severity.HIGH,
+        pattern=r'@\s*(?:eval|assert|system|exec|passthru|shell_exec|base64_decode|gzinflate)\s*\(',
+        description="Error suppression on dangerous execution or decoding functions is often used to hide malicious behavior.",
+        impact="Hidden execution paths can stay unnoticed during testing while still activating in production, which makes malware or backdoors harder to detect.",
+        cwe="CWE-506",
+        recommendation="Remove error suppression and review why the dangerous function is needed at all.",
+        confidence="medium",
+    ),
+    VulnPattern(
+        id="PHP-MALWARE-013", title="User input assigned to variable variables",
+        severity=Severity.HIGH,
+        pattern=r'(?:\$\$\w+|\$\w+\s*=\s*\$\$\w+)\s*=\s*\$_(?:GET|POST|REQUEST|COOKIE)',
+        description="Variable-variable assignment from user input can rewire execution flow or smuggle attacker-controlled values into sensitive variables.",
+        impact="Attackers may overwrite internal variables, bypass logic, or prepare data that later reaches dangerous sinks such as eval, include, or SQL queries.",
+        cwe="CWE-94",
+        recommendation="Avoid variable variables and map request input explicitly to known fields.",
+        confidence="medium",
+    ),
+    VulnPattern(
+        id="PHP-MALWARE-014", title="Suspicious outbound request with request data",
+        severity=Severity.HIGH,
+        pattern=r'(?:wp_remote_post\s*\(|curl_setopt\s*\([^)]*CURLOPT_POSTFIELDS\s*,)[^\n;]*\$_(?:GET|POST|REQUEST|COOKIE|SERVER)',
+        description="Request or server data is being forwarded to a remote endpoint, which can indicate telemetry abuse or data exfiltration.",
+        impact="Visitor information, cookies, tokens, or form submissions may be sent to third-party servers without authorization.",
+        cwe="CWE-200",
+        recommendation="Audit the remote destination and strip sensitive data from outbound requests.",
+        confidence="medium",
+    ),
 
     # ── LOW: Best Practice Violations ──
     # Non-critical quality checks
     VulnPattern(
-        # ID
         id="PHP-BP-001", title="Direct use of $_GET/$_POST without sanitization",
-        # Low
         severity=Severity.LOW,
-        # Pattern
-        pattern=r'\$_(?:GET|POST|REQUEST)\s*\[\s*[\'"][^\]]+[\'"]\s*\](?!\s*\))',
-        # Description
+        pattern=r'\$_(?:GET|POST|REQUEST)\s*\[\s*[\'\"][^\]]+[\'\"]\s*\](?!\s*\))',
         description="Superglobal used without immediate sanitization.",
-        # Impact
         impact="User input is being used without cleaning it first. While not always exploitable on its own, this is poor practice that makes other vulnerabilities (like XSS or SQL injection) more likely.",
-        # Metadata
-        cwe="CWE-20", recommendation="Wrap in sanitize_text_field(), intval(), or absint().",
-        # Low confidence
+        cwe="CWE-20",
+        recommendation="Wrap in sanitize_text_field(), intval(), or absint().",
         confidence="low",
     ),
-    # extract() check
     VulnPattern(
-        # ID
         id="PHP-BP-002", title="extract() usage",
-        # Medium
         severity=Severity.MEDIUM,
-        # Pattern
         pattern=r'\bextract\s*\(\s*\$',
-        # Description
         description="extract() imports variables into scope, risking variable overwrite attacks.",
-        # Impact
         impact="An attacker could potentially overwrite important internal variables, bypassing security checks or changing the plugin's behavior in unexpected ways.",
-        # Metadata
-        cwe="CWE-621", recommendation="Access array values directly instead of using extract().",
+        cwe="CWE-621",
+        recommendation="Access array values directly instead of using extract().",
     ),
-    # Old MySQL check
     VulnPattern(
-        # ID
         id="PHP-BP-003", title="Deprecated MySQL functions",
-        # Low
         severity=Severity.LOW,
-        # Pattern
         pattern=r'\bmysql_(?:query|connect|select_db|fetch)\s*\(',
-        # Description
         description="Deprecated mysql_* functions. WordPress uses $wpdb internally.",
-        # Impact
         impact="These outdated database functions lack modern security features. Using them indicates the code hasn't been maintained and may be vulnerable to SQL injection attacks.",
-        # Metadata
-        cwe="CWE-477", recommendation="Use $wpdb methods instead of raw MySQL functions.",
+        cwe="CWE-477",
+        recommendation="Use $wpdb methods instead of raw MySQL functions.",
+    ),
+    VulnPattern(
+        id="PHP-BP-004", title="Use of $_REQUEST superglobal",
+        severity=Severity.LOW,
+        pattern=r'\b\$_REQUEST\b',
+        description="$_REQUEST merges GET, POST, and COOKIE data and can cause unexpected input handling or security bypasses.",
+        impact="Attackers might supply data through an unexpected channel such as cookies when the code intended to only trust form or query-string input.",
+        layman_fix="The developer should replace $_REQUEST with the more specific $_GET or $_POST and sanitize the value immediately.",
+        step_by_step_fix=[
+            "Find where `$_REQUEST` is referenced.",
+            "Decide whether the data should come from GET or POST.",
+            "Replace `$_REQUEST` with the specific superglobal.",
+            "Apply input sanitization such as `sanitize_text_field()`, `absint()`, or `sanitize_key()`."
+        ],
+        cwe="CWE-20",
+        recommendation="Prefer $_GET or $_POST explicitly and sanitize as close to input as possible.",
+        confidence="high",
     ),
 ]
 
 # ─── JAVASCRIPT VULNERABILITY PATTERNS ──────────────────────────────
 # Collection of security signatures targeting JavaScript/TypeScript
 JS_PATTERNS: list[VulnPattern] = [
-    # innerHTML check
     VulnPattern(
-        # ID
         id="JS-XSS-001", title="innerHTML assignment with variable",
-        # Medium
         severity=Severity.MEDIUM,
-        # Pattern
         pattern=r'\.innerHTML\s*=\s*(?![\s]*["\']<)',
-        # Description
         description="Setting innerHTML with dynamic content can introduce DOM-based XSS.",
-        # Impact
         impact="An attacker could inject malicious scripts into your page that steal visitor data, hijack sessions, or redirect users to dangerous websites.",
-        # Metadata
-        cwe="CWE-79", recommendation="Use textContent or DOMPurify.sanitize().",
-        # Target languages
+        cwe="CWE-79",
+        recommendation="Use textContent or DOMPurify.sanitize().",
         languages=("js", "jsx", "ts", "tsx"),
     ),
-    # document.write check
     VulnPattern(
-        # ID
         id="JS-XSS-002", title="document.write() usage",
-        # Medium
         severity=Severity.MEDIUM,
-        # Pattern
         pattern=r'\bdocument\.write\s*\(',
-        # Description
         description="document.write() can introduce XSS and degrades performance.",
-        # Impact
         impact="Attackers could inject content directly into your page. Visitors might see fake forms, malicious downloads, or be redirected without warning.",
-        # Metadata
-        cwe="CWE-79", recommendation="Use DOM manipulation methods instead.",
-        # Target languages
+        cwe="CWE-79",
+        recommendation="Use DOM manipulation methods instead.",
         languages=("js", "jsx", "ts", "tsx"),
     ),
-    # eval() check
     VulnPattern(
-        # ID
         id="JS-RCE-001", title="eval() in JavaScript",
-        # High
         severity=Severity.HIGH,
-        # Pattern
         pattern=r'\beval\s*\(',
-        # Description
         description="eval() executes arbitrary JavaScript — major security risk.",
-        # Impact
         impact="If an attacker can control what gets evaluated, they can run any JavaScript in your users' browsers — stealing cookies, form data, or redirecting to malicious sites.",
-        # Metadata
-        cwe="CWE-94", recommendation="Use JSON.parse() or Function() with extreme caution.",
-        # Target languages
+        cwe="CWE-94",
+        recommendation="Use JSON.parse() or Function() with extreme caution.",
         languages=("js", "jsx", "ts", "tsx"),
     ),
-    # Function constructor check
     VulnPattern(
-        # ID
-        id="JS-RCE-002", title="Function() constructor",
-        # High
+        id="JS-MALWARE-001", title="eval(atob()) obfuscated JavaScript payload",
         severity=Severity.HIGH,
-        # Pattern
+        pattern=r'\beval\s*\(\s*(?:atob|window\.atob)\s*\(',
+        description="Base64-decoded content is executed dynamically in JavaScript. This is a strong malware and skimmer indicator.",
+        impact="Malicious scripts can be hidden inside encoded blobs and only decoded in the browser, helping attackers steal data while evading basic review.",
+        cwe="CWE-506",
+        recommendation="Remove encoded dynamic execution and replace it with transparent, static logic.",
+        languages=("js", "jsx", "ts", "tsx"),
+        confidence="high",
+    ),
+    VulnPattern(
+        id="JS-RCE-002", title="Function() constructor",
+        severity=Severity.HIGH,
         pattern=r'\bnew\s+Function\s*\(',
-        # Description
         description="Function constructor is equivalent to eval() and poses the same risks.",
-        # Impact
         impact="Similar to eval(), this can be exploited to run arbitrary JavaScript, potentially stealing user data or hijacking browsing sessions.",
-        # Metadata
-        cwe="CWE-94", recommendation="Refactor to avoid dynamic code generation.",
-        # Target languages
+        cwe="CWE-94",
+        recommendation="Refactor to avoid dynamic code generation.",
         languages=("js", "jsx", "ts", "tsx"),
     ),
-    # AJAX nonce check
     VulnPattern(
-        # ID
-        id="JS-AJAX-001", title="AJAX call without nonce",
-        # Medium
+        id="JS-MALWARE-002", title="Obfuscated String.fromCharCode payload",
         severity=Severity.MEDIUM,
-        # Pattern
-        pattern=r'(?:jQuery\.(?:ajax|post|get)|fetch|XMLHttpRequest).*admin-ajax\.php',
-        # Description
-        description="AJAX call to WordPress without nonce parameter.",
-        # Impact
-        impact="Without a security token, other websites could trick your visitors' browsers into making requests to your WordPress site, potentially changing settings or triggering actions without consent.",
-        # Metadata
-        cwe="CWE-352", recommendation="Include wp_nonce in AJAX requests using wp_create_nonce().",
-        # Target languages
+        pattern=r'(?:String\.)?fromCharCode\s*\((?:\s*\d+\s*,){5,}\s*\d+\s*\)',
+        description="Large String.fromCharCode chains are often used to hide malicious JavaScript payloads or skimmers.",
+        impact="Obfuscated browser-side payloads can steal checkout details, inject ads, or redirect users while appearing harmless during source review.",
+        cwe="CWE-506",
+        recommendation="Decode the payload and replace it with readable, auditable source code.",
         languages=("js", "jsx", "ts", "tsx"),
-        # Confidence
         confidence="medium",
     ),
-    # Prototype pollution check
     VulnPattern(
-        # ID
-        id="JS-PROTO-001", title="Prototype pollution risk",
-        # Medium
+        id="JS-AJAX-001", title="AJAX call without nonce",
         severity=Severity.MEDIUM,
-        # Pattern
+        pattern=r'(?:jQuery\.(?:ajax|post|get)|fetch|XMLHttpRequest).*admin-ajax\.php',
+        description="AJAX call to WordPress without nonce parameter.",
+        impact="Without a security token, other websites could trick your visitors' browsers into making requests to your WordPress site, potentially changing settings or triggering actions without consent.",
+        cwe="CWE-352",
+        recommendation="Include wp_nonce in AJAX requests using wp_create_nonce().",
+        languages=("js", "jsx", "ts", "tsx"),
+        confidence="medium",
+    ),
+    VulnPattern(
+        id="JS-PROTO-001", title="Prototype pollution risk",
+        severity=Severity.MEDIUM,
         pattern=r'(?:__proto__|constructor\s*\[\s*["\']prototype["\']\s*\])',
-        # Description
         description="Potential prototype pollution vector.",
-        # Impact
         impact="An attacker could modify how JavaScript objects behave globally, potentially bypassing security checks, causing the application to crash, or injecting malicious behavior.",
-        # Metadata
-        cwe="CWE-1321", recommendation="Validate object keys. Use Object.create(null) for dictionaries.",
-        # Target languages
+        cwe="CWE-1321",
+        recommendation="Validate object keys. Use Object.create(null) for dictionaries.",
         languages=("js", "jsx", "ts", "tsx"),
     ),
-    # External script check
     VulnPattern(
-        # ID
         id="JS-EXT-001", title="External script loading",
-        # Medium
         severity=Severity.MEDIUM,
-        # Pattern
         pattern=r'(?:createElement\s*\(\s*["\']script["\']|\.src\s*=\s*["\']https?://)',
-        # Description
         description="Dynamic loading of external scripts can introduce supply-chain risks.",
-        # Impact
         impact="If the external server is compromised, malicious JavaScript could be loaded onto your site without any changes to your own code — affecting all your visitors silently.",
-        # Metadata
-        cwe="CWE-829", recommendation="Load scripts via wp_enqueue_script() with integrity checks.",
-        # Target languages
+        cwe="CWE-829",
+        recommendation="Load scripts via wp_enqueue_script() with integrity checks.",
         languages=("js", "jsx", "ts", "tsx"),
-        # Confidence
         confidence="medium",
     ),
 ]
 
-# Combined list of all vulnerability signatures
 ALL_PATTERNS = PHP_PATTERNS + JS_PATTERNS
 
-# Mapping of language names to their relevant file extensions
 LANGUAGE_EXTENSIONS = {
-    # PHP extensions
     "php": (".php", ".inc", ".module"),
-    # JavaScript extensions
     "js": (".js", ".jsx", ".mjs"),
-    # TypeScript extensions
     "ts": (".ts", ".tsx"),
 }
+

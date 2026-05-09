@@ -1,125 +1,290 @@
-# checkwp
+# CheckWP
 
-A production-ready CLI tool for detecting malware, backdoors, adware, and security vulnerabilities in WordPress plugins. Works fully offline with 50+ built-in detection rules, with optional AI-enhanced analysis via any OpenAI-compatible API.
+CheckWP is an offline-first security scanner for WordPress plugins. It scans plugin directories and `.zip` archives for malware, backdoors, insecure code patterns, and common vulnerability classes such as remote code execution, SQL injection, cross-site scripting, CSRF, unsafe uploads, and privilege issues.
 
-## Features
+AI verification is optional. The scanner only enables AI support when `--ai-key` is provided.
 
-- **50+ vulnerability signatures** — SQL injection, XSS, CSRF, RCE, command injection, file inclusion, deserialization, backdoors, cryptominers, and more
-- **ZIP & Directory Support** — Scan extracted plugin folders or directly upload `.zip` archives.
-- **Plugin Validation** — Automatically verifies WordPress plugin headers before scanning.
-- **Multi-threaded scanning** for fast analysis
-- **Professional HTML reports** — High-fidelity reports with Ubuntu typography, interactive transitions, and actionable remediation guides.
-- **JSON output** for CI/CD integration
-- **Deep scan mode** — Entropy analysis for obfuscated code detection
-- **Optional AI analysis** — uses any OpenAI-compatible API to verify findings and reduce false positives
-- **Zero LLM dependency** — works completely offline by default
+## What CheckWP does
+
+- Scans plugin directories and plugin ZIP archives
+- Validates WordPress plugin structure before scanning
+- Detects PHP and JavaScript malware indicators
+- Finds common security flaws in plugin code
+- Generates HTML, JSON, Markdown, and PDF reports
+- Provides a FastAPI service through `checkwp-api`
+- Includes `mock-malicious-plugin/` for local validation
+
+## Why the offline mode matters
+
+The default scan is designed to be useful even without any external API. It combines:
+
+1. Signature-based detection
+2. Full-file regex matching
+3. Context-aware false-positive checks
+4. Composite malware heuristics for obfuscation and payload execution
+
+This improves detection of backdoors and suspicious payloads even when AI is not used.
+
+## How it works
+
+| Stage                    | What happens                                                                                       |
+|--------------------------|----------------------------------------------------------------------------------------------------|
+| Input validation         | CheckWP accepts a plugin folder or ZIP archive and validates that it looks like a WordPress plugin |
+| Safe extraction          | ZIP archives are extracted with path traversal and symlink protections                             |
+| File discovery           | Files are filtered by extension, size, and excluded folders                                        |
+| Offline scan             | Signatures and heuristics are applied across full file content                                     |
+| Optional AI verification | If `--ai-key` is present, findings can be reviewed by an OpenAI-compatible endpoint                |
+| Reporting                | Results are written as HTML, JSON, Markdown, and PDF                                               |
+
+## Detection coverage
+
+| Category              | Examples                                                                                 |
+|-----------------------|------------------------------------------------------------------------------------------|
+| Remote code execution | `eval()`, `assert()`, `create_function()`, variable-function execution                   |
+| Command injection     | `system()`, `exec()`, `passthru()`, `shell_exec()`, `popen()`                            |
+| SQL injection         | Unsafe `$wpdb` queries and raw superglobals inside SQL                                   |
+| XSS                   | Unescaped output, `innerHTML`, `document.write()`                                        |
+| CSRF                  | Form and AJAX handlers without nonce verification                                        |
+| File issues           | Dynamic include/require, unsafe file reads, unsafe uploads                               |
+| Deserialization       | `unserialize()` on user-controlled input                                                 |
+| Authorization         | Public REST routes, weak capability checks                                               |
+| Malware indicators    | `eval(base64_decode())`, encoded payloads, exfiltration, hidden admin creation, skimmers |
+| Obfuscation           | `chr()` chains, `String.fromCharCode()`, long encoded blobs, entropy spikes              |
 
 ## Installation
 
-There are multiple ways to install checkwp.
+### pipx
 
-### 1. via pipx (Recommended)
-`pipx` is the recommended way to install Python CLI applications in isolated environments.
 ```bash
 pipx install checkwp
 ```
 
-### 2. via PyPI (pip)
-You can install it directly into your global Python environment or a virtual environment:
+### PyPI / pip
+
 ```bash
 pip install checkwp
 ```
 
-### 3. via Homebrew (macOS / Linux)
-If you prefer Homebrew, you can install it using our custom tap:
+### Homebrew
+
 ```bash
-brew tap koljanolte/checkwp
+brew tap thaikolja/checkwp
 brew install checkwp
 ```
 
-### 4. via Git (Development)
-If you want to modify the source code or run the latest unreleased version:
+### Local development install
+
 ```bash
-git clone https://gitlab.com/koljanolte/checkwp.git
+git clone https://gitlab.com/thaikolja/checkwp.git
 cd checkwp
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-*Note: This project is primarily hosted on [GitLab](https://gitlab.com/koljanolte/checkwp) and mirrored to [GitHub](https://github.com/koljanolte/checkwp). Visit [checkwp.org](https://checkwp.org) for more information.*
-
-## Quick Start
+## Quick start
 
 ```bash
-# Scan a directory
 checkwp ./my-plugin
-
-# Scan a ZIP file
 checkwp ./my-plugin.zip
-
-# Deep scan with HTML report
-checkwp ./my-plugin --deep -o report.html
+checkwp ./my-plugin --deep -o report.html --no-open
+checkwp ./mock-malicious-plugin --deep --no-open
 ```
 
-## CLI Reference
+## CLI usage
 
-```
+```text
 checkwp <path> [options]
-
-Positional:
-  path                    Plugin directory or .zip file to scan
-
-Output:
-  -o, --output PATH       Output file path
-  -f, --format {html,json} Report format (default: html)
-  --no-open               Don't auto-open report in browser
-  --stdout                Print report to stdout
-
-Scan:
-  -s, --severity LEVEL    Minimum: critical, high, medium, low
-  --deep                  Entropy analysis + broader matching
-  --quick                 Critical + high severity only
-  -t, --threads N         Parallel threads (default: 4)
-  --max-file-size KB      Max file size in KB (default: 2048)
-  --context-lines N       Context lines around findings (default: 3)
-
-Filter:
-  --exclude DIR           Exclude directories (repeatable)
-  --include-ext EXT       Additional extensions (repeatable)
-  --php-only              PHP files only
-  --js-only               JS/TS files only
-
-AI (Optional):
-  --ai                    Enable AI-enhanced analysis
-  --ai-key KEY            API key (or CHECKWP_AI_KEY env var)
-  --ai-provider URL       OpenAI-compatible base URL
-  --ai-model MODEL        Model name (default: gpt-4o)
-  --ai-temperature FLOAT  Model temperature (default: 0.1)
-
-Display:
-  -v, --verbose           Increase verbosity (-v, -vv, -vvv)
-  -q, --quiet             Suppress console output
-  --no-banner             Hide ASCII banner
-  --no-color              Disable colors
-  -V, --version           Show version
 ```
 
-## What It Detects
+### Core options
 
-| Category | Examples |
-|----------|---------|
-| **Remote Code Execution** | `eval()`, `create_function()`, `assert()`, `preg_replace /e` |
-| **Command Injection** | `system()`, `exec()`, `passthru()`, `shell_exec()`, `popen()` |
-| **SQL Injection** | Direct `$wpdb` queries without `prepare()`, superglobals in SQL |
-| **Cross-Site Scripting** | Unescaped output, `$_SERVER['REQUEST_URI']`, DOM XSS |
-| **CSRF** | Missing nonce verification in form/AJAX handlers |
-| **File Inclusion** | Dynamic `include`/`require` with variables |
-| **Backdoors/Malware** | `eval(base64_decode())`, webshells, cryptominers, data exfiltration |
-| **Authentication** | Missing `current_user_can()`, `is_admin()` misuse |
-| **Cryptographic** | MD5/SHA1 for passwords, hardcoded secrets |
-| **Information Disclosure** | `phpinfo()`, debug output, error display |
+| Option                                      | Description                                               |
+|---------------------------------------------|-----------------------------------------------------------|
+| `-o, --output PATH`                         | Output file path                                          |
+| `-f, --format {html,json}`                  | Report format                                             |
+| `--stdout`                                  | Print report to stdout                                    |
+| `--no-open`                                 | Do not auto-open HTML reports                             |
+| `-s, --severity {critical,high,medium,low}` | Minimum severity to report                                |
+| `--deep`                                    | Enable deeper offline heuristics and entropy-based checks |
+| `--quick`                                   | Restrict output to high and critical findings             |
+| `-t, --threads N`                           | Number of worker threads                                  |
+| `--max-file-size KB`                        | Maximum file size to scan                                 |
+| `--context-lines N`                         | Context lines to include around findings                  |
+| `--exclude NAME`                            | Exclude a directory name; repeatable                      |
+| `--include-ext EXT`                         | Add extra file extensions; repeatable                     |
+| `--php-only`                                | Scan PHP-like files only                                  |
+| `--js-only`                                 | Scan JavaScript / TypeScript-like files only              |
+| `--no-banner`                               | Hide the startup banner                                   |
+| `--no-color`                                | Disable colored output                                    |
+| `-V, --version`                             | Show version                                              |
+
+### AI options
+
+| Option                   | Description                                                       |
+|--------------------------|-------------------------------------------------------------------|
+| `--ai-key KEY`           | Enables AI verification                                           |
+| `--ai-endpoint URL`      | OpenAI-compatible base URL. If omitted, OpenAI is used by default |
+| `--ai-model MODEL`       | Model name for AI verification                                    |
+| `--ai-temperature FLOAT` | Sampling temperature                                              |
+
+Important:
+
+- `--ai-endpoint` accepts a full OpenAI-compatible URL only
+- No provider aliases are used
+- If `--ai-endpoint` is omitted, CheckWP uses `https://api.openai.com/v1`
+
+### AI examples
+
+OpenAI:
+
+```bash
+checkwp ./my-plugin \
+  --ai-key "sk-..." \
+  --ai-model "gpt-4o"
+```
+
+DeepSeek with explicit OpenAI-compatible URL:
+
+```bash
+checkwp ./my-plugin \
+  --ai-key "sk-..." \
+  --ai-endpoint "https://api.deepseek.com/v1" \
+  --ai-model "deepseek-chat"
+```
+
+Generic OpenAI-compatible endpoint:
+
+```bash
+checkwp ./my-plugin \
+  --ai-key "token" \
+  --ai-endpoint "https://example.com/v1" \
+  --ai-model "my-model"
+```
+
+## API usage
+
+Start the API locally:
+
+```bash
+checkwp-api
+```
+
+Default local address:
+
+- `http://127.0.0.1:8000`
+
+### API endpoints
+
+| Method | Endpoint                    | Purpose                      |
+|--------|-----------------------------|------------------------------|
+| `GET`  | `/`                         | Service index                |
+| `GET`  | `/health`                   | Health check                 |
+| `GET`  | `/version`                  | API version                  |
+| `POST` | `/scan`                     | Upload and scan a plugin ZIP |
+| `GET`  | `/static/reports/{id}.html` | Access saved HTML reports    |
+
+### Popular OpenAI-compatible endpoint URLs
+
+| Provider   | Base URL for `--ai-endpoint` or `ai_endpoint` |
+|------------|-----------------------------------------------|
+| OpenAI     | `https://api.openai.com/v1`                   |
+| DeepSeek   | `https://api.deepseek.com/v1`                 |
+| OpenRouter | `https://openrouter.ai/api/v1`                |
+| Groq       | `https://api.groq.com/openai/v1`              |
+| Together   | `https://api.together.xyz/v1`                 |
+
+### Upload and scan a ZIP
+
+```bash
+curl -X POST "http://127.0.0.1:8000/scan?format=json" \
+  -F "file=@./my-plugin.zip"
+```
+
+### Upload and scan with AI verification
+
+```bash
+curl -X POST "http://127.0.0.1:8000/scan?format=json&ai_key=sk-...&ai_endpoint=https://api.deepseek.com/v1&ai_model=deepseek-chat" \
+  -F "file=@./my-plugin.zip"
+```
+
+## Reports
+
+| Format   | Use case                                         |
+|----------|--------------------------------------------------|
+| HTML     | Manual review, sharing, and browser-based triage |
+| JSON     | CI/CD, scripting, and automation                 |
+| Markdown | Lightweight text reports                         |
+| PDF      | Portable report handoff                          |
+
+When HTML output is generated, CheckWP also writes companion `.md` and `.pdf` files.
+
+## Mock plugin for validation
+
+The repository includes `mock-malicious-plugin/`, a deliberately vulnerable sample plugin that contains:
+
+- SQL injection
+- XSS
+- unsafe redirects
+- unsafe uploads
+- public REST routes
+- hidden admin creation
+- obfuscated PHP payloads
+- suspicious JavaScript payloads
+
+Run it locally to validate detection quality:
+
+```bash
+checkwp ./mock-malicious-plugin --deep --no-open
+```
+
+## Development
+
+```bash
+pytest
+ruff check .
+mypy src/
+python -m build
+```
+
+## Publishing
+
+### PyPI
+
+```bash
+python -m build
+python -m twine check dist/*
+python -m twine upload dist/*
+```
+
+### pipx
+
+After publishing to PyPI:
+
+```bash
+pipx install checkwp
+```
+
+### Homebrew
+
+Update `homebrew/checkwp.rb` with the SHA256 of the published PyPI source tarball.
+
+Related files:
+
+- `homebrew/HOMEBREW.md`
+- `.github/workflows/release.yml`
+
+## Author
+
+| Field         | Value                                  |
+|---------------|----------------------------------------|
+| Name          | Kolja Nolte                            |
+| Website       | `https://checkwp.org`                  |
+| Email         | `kolja.nolte@gmail.com`                |
+| GitLab        | `https://gitlab.com/thaikolja/checkwp` |
+| GitHub mirror | `https://github.com/thaikolja/checkwp` |
 
 ## License
 
-MIT
+MIT. See `LICENSE`.
+

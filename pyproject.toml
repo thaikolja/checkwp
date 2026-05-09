@@ -1,24 +1,25 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
+requires = ["setuptools>=69.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "checkwp"
-version = "1.0.0"
-description = "CheckWP — detect malware, backdoors, adware, and security vulnerabilities in WordPress plugins."
+version = "1.1.0"
+description = "Production-ready WordPress plugin malware and vulnerability scanner with offline-first detection and optional AI verification."
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [
     { name = "Kolja Nolte", email = "kolja.nolte@gmail.com" },
 ]
-keywords = ["wordpress", "security", "vulnerability", "scanner", "malware", "php"]
+keywords = ["wordpress", "security", "vulnerability", "scanner", "malware", "php", "fastapi", "pipx"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
+    "Framework :: FastAPI",
     "Intended Audience :: Developers",
     "Intended Audience :: System Administrators",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -44,21 +45,31 @@ Repository = "https://gitlab.com/thaikolja/checkwp"
 Mirror = "https://github.com/thaikolja/checkwp"
 Issues = "https://gitlab.com/thaikolja/checkwp/-/issues"
 Documentation = "https://gitlab.com/thaikolja/checkwp#readme"
+Changelog = "https://github.com/thaikolja/checkwp/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
+    "build>=1.2",
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "ruff>=0.4",
     "mypy>=1.0",
     "bandit>=1.7",
+    "twine>=5.0",
 ]
 
 [project.scripts]
 checkwp = "checkwp.cli:main"
+checkwp-api = "checkwp.api:run"
+
+[tool.setuptools]
+include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"checkwp.report" = ["*.twig"]
 
 [tool.ruff]
 line-length = 120
@@ -72,6 +83,9 @@ ignore = ["E501"]
 python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
+ignore_missing_imports = true
+allow_redefinition = true
+disable_error_code = ["no-redef"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

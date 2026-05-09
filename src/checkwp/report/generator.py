@@ -503,7 +503,7 @@ def generate_html_report(
     }
 
     # Render template with context
-    report = template.render(**context)
+    report = str(template.render(**context))
 
     # Save to disk if path is provided
     if output_path:

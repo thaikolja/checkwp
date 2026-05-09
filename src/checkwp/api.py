@@ -1,6 +1,7 @@
+# Copyright (c) 2024 checkwp authors and contributors
+
 """
-FastAPI entry point for the checkwp Web Interface API.
-This module provides the backend infrastructure for the Nuxt-based front end.
+FastAPI entry point for the checkwp web API.
 """
 
 from __future__ import annotations
@@ -12,49 +13,73 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from checkwp import __version__
 from checkwp.ai.analyzer import AIAnalyzer
+from checkwp.cli import DEFAULT_AI_ENDPOINT, resolve_ai_endpoint
 from checkwp.report.generator import generate_html_report, generate_json_report
 from checkwp.scanner.engine import Scanner
+
+# Configuration for persistent report storage
+REPORTS_DIR = Path(os.environ.get("CHECKWP_REPORTS_DIR", "reports")).resolve()
+REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Initialize the main FastAPI application instance
 app = FastAPI(
     # Set the visible title of the API
     title="CheckWP API",
     # Set the API description
-    description="API for scanning WordPress plugin ZIP files.",
+    description="Scan WordPress plugins for malware, backdoors, and common security vulnerabilities.",
     # Set version
-    version="1.0.0",
+    version=__version__,
 )
 
 # Enable CORS for cross-domain requests from the Nuxt front end
 app.add_middleware(
     CORSMiddleware,
     # In a production environment, you should restrict this to your Nuxt app's domain
-    allow_origins=["*"],
+    allow_origins=os.environ.get("CHECKWP_CORS_ORIGINS", "*").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configuration for persistent report storage
-REPORTS_DIR = os.environ.get("CHECKWP_REPORTS_DIR", "reports")
-os.makedirs(REPORTS_DIR, exist_ok=True)
-
 # Mount the reports directory to serve static HTML files
-app.mount("/static/reports", StaticFiles(directory=REPORTS_DIR), name="reports")
+app.mount("/static/reports", StaticFiles(directory=str(REPORTS_DIR)), name="reports")
+
+
+# Define a lightweight service index for automation and docs links
+@app.get("/")
+def api_index() -> dict[str, object]:
+    """Return a lightweight service index for automation and docs links."""
+    return {
+        "service":             "checkwp-api",
+        "version":             __version__,
+        "docs":                "/docs",
+        "openapi":             "/openapi.json",
+        "health":              "/health",
+        "scan":                "/scan",
+        "default_ai_endpoint": DEFAULT_AI_ENDPOINT,
+    }
 
 
 # Define a health check endpoint for monitoring
 @app.get("/health")
-def health_check():
+def health_check() -> dict[str, str]:
     """Simple endpoint to verify the service is running."""
     # Return a status dictionary
-    return {"status": "ok", "service": "checkwp-api"}
+    return {"status": "ok", "service": "checkwp-api", "version": __version__}
+
+
+# Explicitly return the API version
+@app.get("/version")
+def version() -> dict[str, str]:
+    """Return the API version explicitly."""
+    return {"version": __version__}
 
 
 # Define the main scan endpoint for file uploads
@@ -62,18 +87,26 @@ def health_check():
 async def scan_plugin(
     # Handle the multipart ZIP file upload
     file: UploadFile = File(...),
-    # Optional flag to enable AI analysis
-    ai_enabled: bool = False,
-    # Optional API key for AI provider
-    ai_key: str | None = None,
-    # Preferred AI model name
-    ai_model: str = "gpt-4.1",
+    # Optional API key to enable AI verification
+    ai_key: str | None = Query(default=None, description="Enable AI verification with this key."),
+    # AI endpoint URL
+    ai_endpoint: str = Query(
+        default=DEFAULT_AI_ENDPOINT,
+        description="OpenAI-compatible base URL. Defaults to OpenAI.",
+    ),
+    # AI model to use
+    ai_model: str = Query(default="gpt-4o", description="Model to use for AI verification."),
+    # AI temperature setting
+    ai_temperature: float = Query(default=0.1, ge=0.0, le=2.0),
     # Requested output format
-    format: str = "json"
-):
+    format: str = Query(default="json", pattern="^(json|html)$"),
+    # Enable deep/offline heuristics during the scan
+    deep: bool = Query(default=True, description="Enable deep/offline heuristics during the scan."),
+    # Number of threads for scanning
+    threads: int = Query(default=4, ge=1, le=64),
+) -> JSONResponse:
     """
-    Ingest a ZIP file, validate its content, and perform a security scan.
-    Returns either a detailed JSON report or pre-rendered HTML content.
+    Ingest a ZIP file, validate it, and return a JSON envelope or stored HTML report.
     """
     # Ensure the upload has a usable filename before further validation
     if not file.filename:
@@ -85,19 +118,14 @@ async def scan_plugin(
         # Raise bad request error if not a ZIP
         raise HTTPException(status_code=400, detail="Only .zip files are supported.")
 
-    # Validate the requested output format explicitly
-    if format not in {"json", "html"}:
-        # Raise bad request error for unsupported response formats
-        raise HTTPException(status_code=400, detail="Format must be either 'json' or 'html'.")
-
     # Create a unique temporary directory for this request
-    temp_dir = tempfile.mkdtemp()
+    temp_dir = tempfile.mkdtemp(prefix="checkwp_api_")
     # Build the path where the ZIP will be saved
-    zip_path = os.path.join(temp_dir, Path(file.filename).name)
+    zip_path = Path(temp_dir) / Path(file.filename).name
 
     try:
         # Open the local file for binary writing
-        with open(zip_path, "wb") as buffer:
+        with zip_path.open("wb") as buffer:
             # Stream the uploaded content to the disk
             while chunk := file.file.read(1024 * 64):
                 # Write the current upload chunk to disk
@@ -106,45 +134,52 @@ async def scan_plugin(
         # Initialize the scanner engine with the saved ZIP
         scanner = Scanner(
             # Target the uploaded ZIP
-            target_path=zip_path,
-            # Force deep scanning for web uploads
-            deep_scan=True,
-            # Use 4 parallel threads
-            threads=4
+            target_path=str(zip_path),
+            # Enable deep scanning as requested
+            deep_scan=deep,
+            # Use the specified number of threads
+            threads=threads
         )
 
         # Perform the scan
         result = scanner.scan()
 
         # Surface fatal scan errors as clean HTTP responses instead of returning broken reports
-        if result.errors:
-            # Report invalid plugin packages as a client-side validation problem
-            if any(error.startswith("Invalid WordPress plugin:") for error in result.errors):
-                raise HTTPException(status_code=400, detail=result.errors[0])
-            # Report archive extraction failures as bad uploads
-            if any(
-                error.startswith(prefix)
-                for prefix in ("Invalid ZIP archive:", "Failed to extract ZIP:", "No scannable files found")
+        fatal_error = next(
+            (
+                error
                 for error in result.errors
-            ):
-                raise HTTPException(status_code=400, detail=result.errors[0])
+                if error.startswith(
+                (
+                    "Invalid WordPress plugin:",
+                    "Invalid ZIP archive:",
+                    "Failed to extract ZIP:",
+                    "No scannable files found",
+                    "Target must be a directory or a valid .zip file.",
+                )
+            )
+            ),
+            None,
+        )
+        if fatal_error:
+            raise HTTPException(status_code=400, detail=fatal_error)
 
-        # Perform AI processing if the feature was requested
-        if ai_enabled:
-            # Determine API key priority
-            api_key = ai_key or os.environ.get("CHECKWP_AI_KEY")
-            # Ensure we have a key to work with
-            if not api_key:
-                # Return configuration error
-                raise HTTPException(status_code=400, detail="AI enabled but no AI key provided.")
-
+        # Determine effective API key, prioritizing explicit, env var, then legacy AI key
+        effective_ai_key = ai_key or os.environ.get("CHECKWP_API_KEY") or os.environ.get("CHECKWP_AI_KEY")
+        if effective_ai_key:
             try:
+                # Resolve the base URL for the API provider
+                base_url = resolve_ai_endpoint(ai_endpoint)
                 # Initialize AI analyzer for this request
                 analyzer = AIAnalyzer(
                     # Set key
-                    api_key=api_key,
+                    api_key=effective_ai_key,
                     # Set model
                     model=ai_model,
+                    # Set base URL
+                    base_url=base_url,
+                    # Set temperature
+                    temperature=ai_temperature,
                 )
                 # Verify connectivity before spending time on batch analysis
                 analyzer.check_connection()
@@ -154,6 +189,9 @@ async def scan_plugin(
                 result.ai_model = ai_model
                 # Record estimated token usage
                 result.ai_tokens = len(result.findings) * 850 + 1200
+            except ValueError as exc:
+                # Handle value errors from the AI analyzer as client-side issues
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             except Exception as exc:
                 # Degrade gracefully and return the scan result with a clear warning
                 result.errors.append(f"AI analysis failed: {exc}")
@@ -166,18 +204,18 @@ async def scan_plugin(
             # Generate a unique ID for persistent storage
             report_id = str(uuid.uuid4())
             report_filename = f"{report_id}.html"
-            report_path = os.path.join(REPORTS_DIR, report_filename)
+            report_path = REPORTS_DIR / report_filename
 
             # Save the report to the persistent directory
-            with open(report_path, "w", encoding="utf-8") as f:
-                f.write(html_content)
+            report_path.write_text(html_content, encoding="utf-8")
 
             # Return wrapped in a JSON envelope with the report ID and static URL
             return JSONResponse(
                 content={
                     "html":       html_content,
                     "report_id":  report_id,
-                    "report_url": f"/static/reports/{report_filename}"
+                    "report_url": f"/static/reports/{report_filename}",
+                    "summary":    json.loads(generate_json_report(result))["summary"],
                 }
             )
 
@@ -185,9 +223,20 @@ async def scan_plugin(
         json_report = generate_json_report(result)
         # Return as raw JSON object for front-end consumption
         return JSONResponse(content=json.loads(json_report))
-
     finally:
         # Close the uploaded file handle if it is still open
         await file.close()
         # Always clean up temporary files regardless of success or failure
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def run() -> None:
+    """Run the API with uvicorn for local or packaged deployments."""
+    import uvicorn
+
+    uvicorn.run(
+        "checkwp.api:app",
+        host=os.environ.get("CHECKWP_API_HOST", "127.0.0.1"),
+        port=int(os.environ.get("CHECKWP_API_PORT", "8000")),
+        reload=False,
+    )
