@@ -7,29 +7,30 @@ variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
 
 cache:
+  key: python-deps-$CI_COMMIT_REF_SLUG
   paths:
     - .cache/pip
 
 before_script:
+  - rm -rf .venv
   - python -m venv .venv
   - source .venv/bin/activate
-  - pip install --upgrade pip
-  - pip install -e ".[dev]"
+  - python -m pip install --upgrade pip
+  - python -m pip install -e ".[dev]"
 
 test:
   stage: test
   image: python:3.10
   script:
-    - pytest --cov=checkwp tests/
+    - python -m pytest --cov=checkwp tests/
 
 lint:
   stage: lint
   image: python:3.10
   script:
-    - source .venv/bin/activate
-    - ruff check .
-    - mypy src/
-    - bandit -r src/
+    - python -m ruff check .
+    - python -m mypy src/
+    - python -m bandit -r src/
 
 build_check:
   stage: build

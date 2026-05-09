@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "checkwp"
-version = "1.1.0"
+version = "0.0.1-alpha.1"
 description = "Production-ready WordPress plugin malware and vulnerability scanner with offline-first detection and optional AI verification."
 readme = "README.md"
 license = "MIT"

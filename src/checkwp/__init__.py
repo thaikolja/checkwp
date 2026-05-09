@@ -4,7 +4,7 @@ This package provides tools to audit WordPress plugins for malware, backdoors, a
 """
 
 # Define the current version of the checkwp tool
-__version__ = "1.1.0"
+__version__ = "0.0.1-alpha.1"
 
 # Define the formal application name
 __app_name__ = "checkwp"
